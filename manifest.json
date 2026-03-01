@@ -1,0 +1,12 @@
+{
+    "display_name": "EchoText",
+    "loading_order": 1001,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "mattjaybe",
+    "version": "1.0.0",
+    "homePage": "https://github.com/mattjaybe/SillyTavern-EchoText",
+    "auto_update": true
+}

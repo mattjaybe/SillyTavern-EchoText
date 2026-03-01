@@ -1,0 +1,285 @@
+<div class="et-settings-drawer">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>EchoText</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+
+            <div class="et-drawer-description">
+                A floating text messaging panel to chat with your character card outside the main roleplay.
+            </div>
+
+            <label class="et-drawer-toggle-row" for="et_enabled_quick">
+                <input id="et_enabled_quick" type="checkbox" class="checkbox">
+                <span style="font-weight: bold;"><i class="fa-solid fa-power-off"></i> Enable EchoText</span>
+            </label>
+
+            <button id="et-open-settings-btn" class="menu_button et-open-settings-btn">
+                <i class="fa-solid fa-gear"></i> <span>Open EchoText Settings</span>
+            </button>
+
+            <!-- Accordion Settings Panel -->
+            <div class="et-accordion-settings">
+
+                <!-- General Section -->
+                <div class="et-accordion-section" data-section="general">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-toggle-on"></i> General</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_enabled_panel">
+                                <input type="checkbox" id="et_enabled_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-power-off"></i> Enable EchoText</span>
+                            </label>
+                            <div class="et-hint">Show the EchoText floating action button and panel.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_auto_scroll_panel">
+                                <input type="checkbox" id="et_auto_scroll_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-arrow-down"></i> Auto-scroll to Latest Message</span>
+                            </label>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_show_avatar_panel">
+                                <input type="checkbox" id="et_show_avatar_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-circle-user"></i> Show Character Avatar</span>
+                            </label>
+                            <div class="et-hint">Display the character's avatar image (or initial circle) next to their messages.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Generation Engine Section -->
+                <div class="et-accordion-section" data-section="engine">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-microchip"></i> Generation Engine</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-field">
+                            <label class="et-field-label"><i class="fa-solid fa-plug"></i> Source</label>
+                            <div class="et-select-wrapper">
+                                <select id="et_source_panel" class="et-select">
+                                    <option value="default">Default (Main API)</option>
+                                    <option value="profile">Connection Profile (Recommended)</option>
+                                    <option value="ollama">Ollama (Local)</option>
+                                    <option value="openai">OpenAI Compatible</option>
+                                </select>
+                                <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                            </div>
+                        </div>
+
+                        <div id="et_profile_settings_panel" class="et-sub-panel" style="display:none;">
+                            <div class="et-sub-panel-title"><i class="fa-solid fa-link"></i> Connection Profile</div>
+                            <div class="et-select-wrapper">
+                                <select id="et_profile_select_panel" class="et-select"></select>
+                                <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                            </div>
+                            <div class="et-hint"><i class="fa-solid fa-shield-halved"></i> Uses your existing SillyTavern credentials securely.</div>
+                        </div>
+
+                        <div id="et_ollama_settings_panel" class="et-sub-panel" style="display:none;">
+                            <div class="et-sub-panel-title"><i class="fa-solid fa-terminal"></i> Ollama</div>
+                            <input id="et_ollama_url_panel" type="text" class="et-input-text" placeholder="http://localhost:11434">
+                            <div class="et-select-wrapper">
+                                <select id="et_ollama_model_select_panel" class="et-select"></select>
+                                <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                            </div>
+                            <div id="et_ollama_status_panel" class="et-status-note"></div>
+                        </div>
+
+                        <div id="et_openai_settings_panel" class="et-sub-panel" style="display:none;">
+                            <div class="et-sub-panel-title"><i class="fa-solid fa-cloud"></i> OpenAI Compatible</div>
+                            <div class="et-select-wrapper">
+                                <select id="et_openai_preset_panel" class="et-select">
+                                    <option value="custom">Custom</option>
+                                    <option value="lmstudio">LM Studio (:1234)</option>
+                                    <option value="kobold">KoboldCPP (:5001)</option>
+                                    <option value="textgen">TextGenWebUI (:5000)</option>
+                                    <option value="vllm">vLLM (:8000)</option>
+                                </select>
+                                <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                            </div>
+                            <input id="et_openai_url_panel" type="text" class="et-input-text" placeholder="http://localhost:1234/v1">
+                            <input id="et_openai_key_panel" type="password" class="et-input-text" placeholder="API Key (Optional)">
+                            <input id="et_openai_model_panel" type="text" class="et-input-text" placeholder="Model name">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Context Section -->
+                <div class="et-accordion-section" data-section="context">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-file-lines"></i> Context</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-hint" style="margin-bottom:16px;">Choose what information from SillyTavern to include in the character's context when generating responses.</div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_description_panel">
+                                <input type="checkbox" id="et_ctx_description_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-address-card"></i> Character Description</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Include the character's description field in the system prompt.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_personality_panel">
+                                <input type="checkbox" id="et_ctx_personality_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-brain"></i> Personality</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Include the character's personality field.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_scenario_panel">
+                                <input type="checkbox" id="et_ctx_scenario_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-map"></i> Scenario</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Include the scenario/world context field.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_persona_panel">
+                                <input type="checkbox" id="et_ctx_persona_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-face-smile"></i> Your Persona</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Include your active persona description.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_world_info_panel">
+                                <input type="checkbox" id="et_ctx_world_info_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-globe"></i> World Info / Lorebook</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Include active World Info / Lorebook entries.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_st_messages_panel">
+                                <input type="checkbox" id="et_ctx_st_messages_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-comments"></i> SillyTavern Chat Messages</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Include recent messages from the main SillyTavern chat as context.</div>
+                            <div id="et_ctx_st_message_count_container_panel" class="et-sub-field" style="display:none; margin-top:10px;">
+                                <label class="et-field-label" for="et_ctx_st_message_count_panel">
+                                    <i class="fa-solid fa-hashtag"></i> Number of Messages
+                                </label>
+                                <div class="et-slider-row">
+                                    <input type="range" id="et_ctx_st_message_count_panel" class="slider et-slider" min="1" max="50" step="1" value="10">
+                                    <span id="et_ctx_st_message_count_val_panel" class="et-slider-val">10</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Appearance Section -->
+                <div class="et-accordion-section" data-section="appearance">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-palette"></i> Appearance</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-field">
+                            <label class="et-field-label"><i class="fa-solid fa-swatchbook"></i> Theme</label>
+                            <div id="et_theme_panel_container">
+                                <!-- Theme dropdown will be populated by JavaScript -->
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_font_size_panel">
+                                <i class="fa-solid fa-font"></i> Font Size
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_font_size_panel" class="slider et-slider" min="10" max="24" step="1" value="15">
+                                <span id="et_font_size_val_panel" class="et-slider-val">15px</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label"><i class="fa-solid fa-text-height"></i> Font Family</label>
+                            <div id="et_font_family_panel_container">
+                                <!-- Font dropdown will be populated by JavaScript -->
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_glass_blur_panel">
+                                <i class="fa-solid fa-droplet"></i> Glassmorphism Blur
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_glass_blur_panel" class="slider et-slider" min="0" max="40" step="2" value="20">
+                                <span id="et_glass_blur_val_panel" class="et-slider-val">20px</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_glass_opacity_panel">
+                                <i class="fa-solid fa-eye"></i> Panel Opacity
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_glass_opacity_panel" class="slider et-slider" min="20" max="100" step="5" value="85">
+                                <span id="et_glass_opacity_val_panel" class="et-slider-val">85%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Button Section -->
+                <div class="et-accordion-section" data-section="fab">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-circle-dot"></i> Action Button</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_fab_size_panel">
+                                <i class="fa-solid fa-expand"></i> Button Size
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_fab_size_panel" class="slider et-slider" min="22" max="76" step="2" value="56">
+                                <span id="et_fab_size_val_panel" class="et-slider-val">56px</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label">
+                                <i class="fa-solid fa-icons"></i> Button Icon
+                            </label>
+                            <div class="et-custom-dropdown et-dd-up" id="et_fab_icon_panel" data-value="fa-comment-dots">
+                                <div class="et-dd-trigger">
+                                    <div class="et-dd-display">
+                                        <i class="fa-solid fa-comment-dots"></i> <span>Comment Dots</span>
+                                    </div>
+                                    <i class="fa-solid fa-chevron-down et-dd-arrow"></i>
+                                </div>
+                                <div class="et-dd-menu">
+                                    <div class="et-dd-option et-dd-selected" data-value="fa-comment-dots"><i class="fa-solid fa-comment-dots"></i> Comment Dots</div>
+                                    <div class="et-dd-option" data-value="fa-message"><i class="fa-solid fa-message"></i> Message</div>
+                                    <div class="et-dd-option" data-value="fa-comments"><i class="fa-solid fa-comments"></i> Comments</div>
+                                    <div class="et-dd-option" data-value="fa-mobile-screen"><i class="fa-solid fa-mobile-screen"></i> Mobile</div>
+                                    <div class="et-dd-option" data-value="fa-robot"><i class="fa-solid fa-robot"></i> Robot</div>
+                                    <div class="et-dd-option" data-value="fa-heart"><i class="fa-solid fa-heart"></i> Heart</div>
+                                    <div class="et-dd-option" data-value="fa-star"><i class="fa-solid fa-star"></i> Star</div>
+                                    <div class="et-dd-option" data-value="fa-bolt"><i class="fa-solid fa-bolt"></i> Bolt</div>
+                                    <div class="et-dd-option" data-value="fa-fire"><i class="fa-solid fa-fire"></i> Fire</div>
+                                    <div class="et-dd-option" data-value="fa-wand-magic-sparkles"><i class="fa-solid fa-wand-magic-sparkles"></i> Magic</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+</div>
