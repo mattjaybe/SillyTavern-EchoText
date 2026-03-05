@@ -38,18 +38,40 @@
                         </div>
 
                         <div class="et-field">
+                            <label class="et-toggle-row" for="et_auto_open_panel">
+                                <input type="checkbox" id="et_auto_open_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-door-open"></i> Auto-Open on
+                                    Reload</span>
+                            </label>
+                            <div class="et-hint">Automatically open the EchoText panel when SillyTavern loads.</div>
+                        </div>
+
+                        <div class="et-field">
                             <label class="et-toggle-row" for="et_auto_scroll_panel">
                                 <input type="checkbox" id="et_auto_scroll_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-arrow-down"></i> Auto-scroll to Latest Message</span>
+                                <span class="et-label-text"><i class="fa-solid fa-arrow-down"></i> Auto-scroll to Latest
+                                    Message</span>
                             </label>
                         </div>
 
                         <div class="et-field">
                             <label class="et-toggle-row" for="et_show_avatar_panel">
                                 <input type="checkbox" id="et_show_avatar_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-circle-user"></i> Show Character Avatar</span>
+                                <span class="et-label-text"><i class="fa-solid fa-circle-user"></i> Show Character
+                                    Avatar</span>
                             </label>
-                            <div class="et-hint">Display the character's avatar image (or initial circle) next to their messages.</div>
+                            <div class="et-hint">Display the character's avatar image (or initial circle) next to their
+                                messages.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_emotion_system_panel">
+                                <input type="checkbox" id="et_emotion_system_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-heart-pulse"></i> Dynamic Emotion
+                                    System</span>
+                            </label>
+                            <div class="et-hint">Track the character's emotional state using Plutchik's Wheel of
+                                Emotions. Click the character's name in the panel to view their state.</div>
                         </div>
                     </div>
                 </div>
@@ -80,12 +102,14 @@
                                 <select id="et_profile_select_panel" class="et-select"></select>
                                 <i class="fa-solid fa-chevron-down et-select-arrow"></i>
                             </div>
-                            <div class="et-hint"><i class="fa-solid fa-shield-halved"></i> Uses your existing SillyTavern credentials securely.</div>
+                            <div class="et-hint"><i class="fa-solid fa-shield-halved"></i> Uses your existing
+                                SillyTavern credentials securely.</div>
                         </div>
 
                         <div id="et_ollama_settings_panel" class="et-sub-panel" style="display:none;">
                             <div class="et-sub-panel-title"><i class="fa-solid fa-terminal"></i> Ollama</div>
-                            <input id="et_ollama_url_panel" type="text" class="et-input-text" placeholder="http://localhost:11434">
+                            <input id="et_ollama_url_panel" type="text" class="et-input-text"
+                                placeholder="http://localhost:11434">
                             <div class="et-select-wrapper">
                                 <select id="et_ollama_model_select_panel" class="et-select"></select>
                                 <i class="fa-solid fa-chevron-down et-select-arrow"></i>
@@ -105,9 +129,23 @@
                                 </select>
                                 <i class="fa-solid fa-chevron-down et-select-arrow"></i>
                             </div>
-                            <input id="et_openai_url_panel" type="text" class="et-input-text" placeholder="http://localhost:1234/v1">
-                            <input id="et_openai_key_panel" type="password" class="et-input-text" placeholder="API Key (Optional)">
-                            <input id="et_openai_model_panel" type="text" class="et-input-text" placeholder="Model name">
+                            <input id="et_openai_url_panel" type="text" class="et-input-text"
+                                placeholder="http://localhost:1234/v1">
+                            <input id="et_openai_key_panel" type="password" class="et-input-text"
+                                placeholder="API Key (Optional)">
+                            <input id="et_openai_model_panel" type="text" class="et-input-text"
+                                placeholder="Model name">
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_anti_refusal_panel">
+                                <input type="checkbox" id="et_anti_refusal_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-shield-halved"></i> Anti-Refusal
+                                    Framing</span>
+                            </label>
+                            <div class="et-hint">Prepend a roleplay fiction frame and persona-lock reminder to the
+                                system prompt, and insert an in-character pre-fill for chat-completion backends (Profile
+                                / Ollama / OpenAI) to prevent out-of-character refusals.</div>
                         </div>
                     </div>
                 </div>
@@ -119,14 +157,17 @@
                         <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
                     </div>
                     <div class="et-accordion-content">
-                        <div class="et-hint" style="margin-bottom:16px;">Choose what information from SillyTavern to include in the character's context when generating responses.</div>
+                        <div class="et-hint" style="margin-bottom:16px;">Choose what information from SillyTavern to
+                            include in the character's context when generating responses.</div>
 
                         <div class="et-field">
                             <label class="et-toggle-row" for="et_ctx_description_panel">
                                 <input type="checkbox" id="et_ctx_description_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-address-card"></i> Character Description</span>
+                                <span class="et-label-text"><i class="fa-solid fa-address-card"></i> Character
+                                    Description</span>
                             </label>
-                            <div class="et-hint et-hint-indent">Include the character's description field in the system prompt.</div>
+                            <div class="et-hint et-hint-indent">Include the character's description field in the system
+                                prompt.</div>
                         </div>
 
                         <div class="et-field">
@@ -156,7 +197,8 @@
                         <div class="et-field">
                             <label class="et-toggle-row" for="et_ctx_world_info_panel">
                                 <input type="checkbox" id="et_ctx_world_info_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-globe"></i> World Info / Lorebook</span>
+                                <span class="et-label-text"><i class="fa-solid fa-globe"></i> World Info /
+                                    Lorebook</span>
                             </label>
                             <div class="et-hint et-hint-indent">Include active World Info / Lorebook entries.</div>
                         </div>
@@ -164,18 +206,103 @@
                         <div class="et-field">
                             <label class="et-toggle-row" for="et_ctx_st_messages_panel">
                                 <input type="checkbox" id="et_ctx_st_messages_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-comments"></i> SillyTavern Chat Messages</span>
+                                <span class="et-label-text"><i class="fa-solid fa-comments"></i> SillyTavern Chat
+                                    Messages</span>
                             </label>
-                            <div class="et-hint et-hint-indent">Include recent messages from the main SillyTavern chat as context.</div>
-                            <div id="et_ctx_st_message_count_container_panel" class="et-sub-field" style="display:none; margin-top:10px;">
-                                <label class="et-field-label" for="et_ctx_st_message_count_panel">
-                                    <i class="fa-solid fa-hashtag"></i> Number of Messages
+                            <div class="et-hint et-hint-indent">Include recent messages from the main SillyTavern chat
+                                as context.</div>
+                            <div id="et_ctx_st_token_container_panel" class="et-sub-field"
+                                style="display:none; margin-top:10px;">
+                                <label class="et-field-label">
+                                    <i class="fa-solid fa-coins"></i> Token Budget
                                 </label>
-                                <div class="et-slider-row">
-                                    <input type="range" id="et_ctx_st_message_count_panel" class="slider et-slider" min="1" max="50" step="1" value="10">
-                                    <span id="et_ctx_st_message_count_val_panel" class="et-slider-val">10</span>
+                                <div class="et-select-wrapper">
+                                    <select id="et_ctx_st_token_preset_panel" class="et-select">
+                                        <option value="low">Low (~512 tokens)</option>
+                                        <option value="medium">Medium (~1,200 tokens)</option>
+                                        <option value="high">High (~2,500 tokens)</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                    <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                                </div>
+                                <div id="et_ctx_st_token_custom_container_panel" style="display:none; margin-top:8px;">
+                                    <input type="number" id="et_ctx_st_token_custom_panel" class="et-input-text"
+                                        min="128" max="8192" step="128" placeholder="e.g. 2000"
+                                        style="margin-bottom:0;">
+                                    <div class="et-hint" style="margin-top:4px;">Approximate tokens EchoText can read
+                                        from your SillyTavern chat.</div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Appearance Section -->
+                <div class="et-accordion-section" data-section="proactive-insights">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-clock"></i> Proactive Messaging Insights</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_proactive_rate_limit_panel">
+                                <i class="fa-solid fa-gauge-high"></i> Proactive Rate Limit (minutes)
+                            </label>
+                            <input id="et_proactive_rate_limit_panel" type="number" class="et-input-text" min="15"
+                                max="2880" step="15" value="180">
+                            <div class="et-hint">Minimum time between proactive generations from the character.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <div class="et-proactive-controls-row">
+                                <button id="et_proactive_toggle_panel" class="et-proactive-btn et-proactive-btn-toggle"
+                                    type="button" title="Enable or disable proactive trigger checks">
+                                    <i class="fa-solid fa-toggle-on"></i>
+                                    <span>Proactive: Enabled</span>
+                                </button>
+                                <button id="et_proactive_refresh_panel"
+                                    class="et-proactive-btn et-proactive-btn-refresh" type="button"
+                                    title="Refresh proactive insights">
+                                    <i class="fa-solid fa-rotate"></i>
+                                    <span>Refresh Insights</span>
+                                </button>
+                                <button id="et_trigger_message_panel" class="et-proactive-btn et-proactive-btn-trigger"
+                                    type="button" title="Send a random proactive trigger message now">
+                                    <i class="fa-solid fa-bolt"></i>
+                                    <span>Trigger Message</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="et-proactive-insights-grid" id="et_proactive_insights_panel">
+                            <div class="et-proactive-insight-item"><span
+                                    class="et-proactive-insight-label">Character</span><span
+                                    class="et-proactive-insight-val" id="et_proactive_character_panel">—</span></div>
+                            <div class="et-proactive-insight-item"><span class="et-proactive-insight-label">Check
+                                    cadence</span><span class="et-proactive-insight-val"
+                                    id="et_proactive_tick_panel">—</span></div>
+                            <div class="et-proactive-insight-item"><span class="et-proactive-insight-label">You last
+                                    messaged</span><span class="et-proactive-insight-val"
+                                    id="et_proactive_last_user_panel">—</span></div>
+                            <div class="et-proactive-insight-item"><span class="et-proactive-insight-label">Character
+                                    last replied</span><span class="et-proactive-insight-val"
+                                    id="et_proactive_last_char_panel">—</span></div>
+                            <div class="et-proactive-insight-item"><span class="et-proactive-insight-label">Last
+                                    proactive text</span><span class="et-proactive-insight-val"
+                                    id="et_proactive_last_auto_panel">—</span></div>
+                            <div class="et-proactive-insight-item et-proactive-insight-wide"><span
+                                    class="et-proactive-insight-label">Current status</span><span
+                                    class="et-proactive-insight-val" id="et_proactive_next_panel">—</span></div>
+                            <div class="et-proactive-insight-item"><span class="et-proactive-insight-label">Last
+                                    trigger</span><span class="et-proactive-insight-val"
+                                    id="et_proactive_type_panel">—</span></div>
+                        </div>
+
+                        <div class="et-field" style="margin-top:12px;">
+                            <details class="et-trigger-details" id="et_trigger_details_panel">
+                                <summary><i class="fa-solid fa-list-check"></i> Trigger Timeline Diagnostics</summary>
+                                <div class="et-trigger-list" id="et_trigger_list_panel"></div>
+                            </details>
                         </div>
                     </div>
                 </div>
@@ -199,7 +326,8 @@
                                 <i class="fa-solid fa-font"></i> Font Size
                             </label>
                             <div class="et-slider-row">
-                                <input type="range" id="et_font_size_panel" class="slider et-slider" min="10" max="24" step="1" value="15">
+                                <input type="range" id="et_font_size_panel" class="slider et-slider" min="10" max="24"
+                                    step="1" value="15">
                                 <span id="et_font_size_val_panel" class="et-slider-val">15px</span>
                             </div>
                         </div>
@@ -216,7 +344,8 @@
                                 <i class="fa-solid fa-droplet"></i> Glassmorphism Blur
                             </label>
                             <div class="et-slider-row">
-                                <input type="range" id="et_glass_blur_panel" class="slider et-slider" min="0" max="40" step="2" value="20">
+                                <input type="range" id="et_glass_blur_panel" class="slider et-slider" min="0" max="40"
+                                    step="2" value="20">
                                 <span id="et_glass_blur_val_panel" class="et-slider-val">20px</span>
                             </div>
                         </div>
@@ -226,9 +355,42 @@
                                 <i class="fa-solid fa-eye"></i> Panel Opacity
                             </label>
                             <div class="et-slider-row">
-                                <input type="range" id="et_glass_opacity_panel" class="slider et-slider" min="20" max="100" step="5" value="85">
+                                <input type="range" id="et_glass_opacity_panel" class="slider et-slider" min="20"
+                                    max="100" step="5" value="85">
                                 <span id="et_glass_opacity_val_panel" class="et-slider-val">85%</span>
                             </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_line_spacing_panel">
+                                <i class="fa-solid fa-text-height"></i> Line Spacing
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_line_spacing_panel" class="slider et-slider" min="1.0"
+                                    max="2.0" step="0.05" value="1.3">
+                                <span id="et_line_spacing_val_panel" class="et-slider-val">1.30</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_paragraph_spacing_panel">
+                                <i class="fa-solid fa-grip-lines"></i> Message Spacing
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_paragraph_spacing_panel" class="slider et-slider" min="2"
+                                    max="24" step="2" value="12">
+                                <span id="et_paragraph_spacing_val_panel" class="et-slider-val">12px</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_dynamic_emotion_panel_panel">
+                                <input type="checkbox" id="et_dynamic_emotion_panel_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-wand-sparkles"></i> Dynamic Emotion
+                                    Panel</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Subtle glassmorphism glow tint that reflects the
+                                character's current dominant emotion. Does not override your chosen theme.</div>
                         </div>
                     </div>
                 </div>
@@ -245,7 +407,8 @@
                                 <i class="fa-solid fa-expand"></i> Button Size
                             </label>
                             <div class="et-slider-row">
-                                <input type="range" id="et_fab_size_panel" class="slider et-slider" min="22" max="76" step="2" value="56">
+                                <input type="range" id="et_fab_size_panel" class="slider et-slider" min="22" max="76"
+                                    step="2" value="56">
                                 <span id="et_fab_size_val_panel" class="et-slider-val">56px</span>
                             </div>
                         </div>
@@ -254,7 +417,8 @@
                             <label class="et-field-label">
                                 <i class="fa-solid fa-icons"></i> Button Icon
                             </label>
-                            <div class="et-custom-dropdown et-dd-up" id="et_fab_icon_panel" data-value="fa-comment-dots">
+                            <div class="et-custom-dropdown et-dd-up" id="et_fab_icon_panel"
+                                data-value="fa-comment-dots">
                                 <div class="et-dd-trigger">
                                     <div class="et-dd-display">
                                         <i class="fa-solid fa-comment-dots"></i> <span>Comment Dots</span>
@@ -262,16 +426,26 @@
                                     <i class="fa-solid fa-chevron-down et-dd-arrow"></i>
                                 </div>
                                 <div class="et-dd-menu">
-                                    <div class="et-dd-option et-dd-selected" data-value="fa-comment-dots"><i class="fa-solid fa-comment-dots"></i> Comment Dots</div>
-                                    <div class="et-dd-option" data-value="fa-message"><i class="fa-solid fa-message"></i> Message</div>
-                                    <div class="et-dd-option" data-value="fa-comments"><i class="fa-solid fa-comments"></i> Comments</div>
-                                    <div class="et-dd-option" data-value="fa-mobile-screen"><i class="fa-solid fa-mobile-screen"></i> Mobile</div>
-                                    <div class="et-dd-option" data-value="fa-robot"><i class="fa-solid fa-robot"></i> Robot</div>
-                                    <div class="et-dd-option" data-value="fa-heart"><i class="fa-solid fa-heart"></i> Heart</div>
-                                    <div class="et-dd-option" data-value="fa-star"><i class="fa-solid fa-star"></i> Star</div>
-                                    <div class="et-dd-option" data-value="fa-bolt"><i class="fa-solid fa-bolt"></i> Bolt</div>
-                                    <div class="et-dd-option" data-value="fa-fire"><i class="fa-solid fa-fire"></i> Fire</div>
-                                    <div class="et-dd-option" data-value="fa-wand-magic-sparkles"><i class="fa-solid fa-wand-magic-sparkles"></i> Magic</div>
+                                    <div class="et-dd-option et-dd-selected" data-value="fa-comment-dots"><i
+                                            class="fa-solid fa-comment-dots"></i> Comment Dots</div>
+                                    <div class="et-dd-option" data-value="fa-message"><i
+                                            class="fa-solid fa-message"></i> Message</div>
+                                    <div class="et-dd-option" data-value="fa-comments"><i
+                                            class="fa-solid fa-comments"></i> Comments</div>
+                                    <div class="et-dd-option" data-value="fa-mobile-screen"><i
+                                            class="fa-solid fa-mobile-screen"></i> Mobile</div>
+                                    <div class="et-dd-option" data-value="fa-robot"><i class="fa-solid fa-robot"></i>
+                                        Robot</div>
+                                    <div class="et-dd-option" data-value="fa-heart"><i class="fa-solid fa-heart"></i>
+                                        Heart</div>
+                                    <div class="et-dd-option" data-value="fa-star"><i class="fa-solid fa-star"></i> Star
+                                    </div>
+                                    <div class="et-dd-option" data-value="fa-bolt"><i class="fa-solid fa-bolt"></i> Bolt
+                                    </div>
+                                    <div class="et-dd-option" data-value="fa-fire"><i class="fa-solid fa-fire"></i> Fire
+                                    </div>
+                                    <div class="et-dd-option" data-value="fa-wand-magic-sparkles"><i
+                                            class="fa-solid fa-wand-magic-sparkles"></i> Magic</div>
                                 </div>
                             </div>
                         </div>
