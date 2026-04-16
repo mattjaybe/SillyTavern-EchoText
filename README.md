@@ -13,7 +13,7 @@ A [SillyTavern](https://github.com/SillyTavern/SillyTavern) extension that adds 
 
 ---
 
-![EchoText running alongside SillyTavern's main roleplay](EchoText-ReadmeImages/sillytavern.png)
+![EchoText running alongside SillyTavern's main roleplay](https://github.com/user-attachments/assets/08f4bef1-1da0-4bdf-91bb-26012fb40e0d)
 
 *EchoText floating alongside SillyTavern's main roleplay window — two separate conversations, one seamless interface.*
 
@@ -29,12 +29,12 @@ It lives as a draggable, resizable panel floating over SillyTavern. Text a diffe
 
 | | Feature | What it does |
 |:---:|:---|:---|
-| 🔗 | **Tethered Mode** | Chat with full awareness of your active SillyTavern roleplay |
-| 🌐 | **Untethered Mode** | Fully standalone conversations — works without any active ST story |
+| 🔗 | **Tethered Mode** | Chat with character's awareness of your SillyTavern roleplay with them |
+| 🌐 | **Untethered Mode** | Standalone conversation — set chat influence for the character |
 | ❤️ | **Emotional Intelligence** | Characters develop emotional states that evolve with every exchange |
 | 🎭 | **Chat Influence** | Set a character's mood, personality, and voice for untethered conversations |
 | 🔔 | **Proactive Messaging** | Characters reach out on their own — morning texts, check-ins, and more |
-| 🖼️ | **AI Image Generation** | Ask for a selfie or photo and get a generated image right in chat |
+| 🖼️ | **Image Generation** | Ask for a selfie or photo and get a generated image right in chat |
 | 🗂️ | **Image Gallery** | Browse all generated images for each character in a dedicated gallery |
 | 💾 | **Chat Archives** | Save and restore full conversations, including emotional state at save time |
 | 🧠 | **Memory System** | Highlight shared moments — characters will remember them in future chats |
@@ -58,13 +58,11 @@ EchoText has two distinct ways to chat, designed for different situations.
 
 - Casual, daily-life style conversations
 - Quick check-ins between roleplay sessions
-- Characters who live entirely in EchoText and have no ST story at all
+- Overriding the mood, personality and voice of the character
 
 You're never locked into one mode — the panel adapts based on your setup, and switching is immediate.
 
 Switching characters in EchoText does **not** affect what's happening in SillyTavern's main window. Your roleplay continues uninterrupted.
-
-![EchoText Tethered mode running alongside a SillyTavern roleplay](EchoText-ReadmeImages/sillytavern.png)
 
 </details>
 
@@ -82,11 +80,11 @@ EchoText tracks a character's emotional state across all 9 emotions on **Plutchi
 - **Psychological coherence** — Opposite emotions suppress each other, keeping states grounded
 - **Reaction influence** — Emoji reactions you leave on a message actually nudge the character's emotional state
 
-Click the emotion badge in the panel header at any time to see the full breakdown — all 9 emotions with live values, current deltas, and intensity labels like "Serenity," "Ecstasy," or "Apprehension."
+Click the emotion badge in the panel header below the character's name at any time to see the full breakdown — all 9 emotions with live values, current deltas, and intensity labels like "Serenity," "Ecstasy," or "Apprehension."
 
-![Emotional state popup showing all 9 Plutchik emotions with current values](EchoText-ReadmeImages/emotional-state.png)
+![Emotional state popup showing all 9 Plutchik emotions with current values](https://github.com/user-attachments/assets/03917a76-45d3-4a45-bcde-ce66b1d70423)
 
-> **Tethered bonus:** Enable *SillyTavern Context* and the character's emotional state will also shift from what happens in your main roleplay. An emotionally charged scene in SillyTavern will organically bleed into how the character feels when you text them.
+> **Tethered bonus:** Enable *SillyTavern Context* and the character's emotional state will also shift from what happens in your main roleplay. An emotionally charged scene in SillyTavern will organically bleed into how the character feels when you converse with them in EchoText.
 
 </details>
 
@@ -102,17 +100,17 @@ Three dimensions, fully adjustable:
 
 | Dimension | Options |
 |:---|:---|
-| **Mood** | Romantic, Flirty, Erotic, Explicit, Playful, Angry, Shy, Confident, Sad, Happy, Anxious, Bored, Excited, Jealous, Cold, Mysterious |
-| **Personality** | 24 archetypes — Tsundere, Yandere, Kuudere, Dandere, Gentle Giant, Cool Older Sibling, Childhood Friend, Rival, Scholar, Caretaker, Rebel, and more |
-| **Voice** | Formal, Casual, Poetic, Blunt, Playful, Teasing, Supportive, Mysterious |
+| **Mood** | Romantic, Flirty, Erotic, Explicit, Playful, Angry, Shy, Confident, Sad, Happy, Anxious, Bored, Excited, Jealous, and more |
+| **Personality** | 24 archetypes — Tsundere, Yandere, Kuudere, Dandere, Introvert, Extrovert, Sassy, Sarcastic, Clown, Brooding, and more |
+| **Voice** | Formal, Casual, Poetic, Direct, Theatrical, Banter, Cryptic, Nurturing, and more |
 
-Each dimension has an **Intensity slider** (0–100%) to dial in how strongly it colors the responses — a hint of mystery or full tsundere mode, entirely your call.
+Mood and Personality has an **Intensity slider** (0–100%) to dial in how strongly it colors the responses — a hint of mystery or full tsundere mode, entirely your call.
 
 Your active selections appear as colored icon badges in the panel header for a quick at-a-glance reminder. Chat Influence settings are also saved and restored with Chat Archives, so loading an old conversation brings back exactly the flavor it had.
 
-![Chat Influence menu with mood selection grid](EchoText-ReadmeImages/chat-influence.png)
+![Chat Influence menu with mood selection grid](https://github.com/user-attachments/assets/1564f2e6-cf10-4f20-bf83-c7aa65a05a1c)
 
-![Chat panel in Untethered mode with influence badges visible in the header](EchoText-ReadmeImages/untethered.png)
+![Chat panel in Untethered mode with influence badges visible in the header](https://github.com/user-attachments/assets/e4587bad-1d6c-402d-9260-7ed56499b3da)
 
 </details>
 
@@ -147,15 +145,19 @@ You can tune the frequency, active time windows, and which triggers fire per cha
 
 > In Group Chats, each character runs their own independent proactive schedule — so multiple characters can reach out to you between sessions, each from their own context.
 
+### Install the optional EchoText-Proactive Server Plugin
+
+Due to how browsers work, when you tab away from SillyTavern or minimize the browser, the proactive messaging in EchoText pauses. To bypass this limitation and allow characters to message you even when SillyTavern isn't visible, install the server plugin. To learn more and to install the server plugin, visit <a href="https://github.com/mattjaybe/SillyTavern-EchoText-Proactive/">https://github.com/mattjaybe/SillyTavern-EchoText-Proactive/</a>
+
 </details>
 
 ---
 
 <details>
-<summary><strong>🖼️ AI Image Generation</strong></summary>
+<summary><strong>🖼️ Image Generation</strong></summary>
 <br>
 
-Ask a character for a selfie, a photo, or a drawing — and EchoText will generate one using your connected Stable Diffusion setup.
+Ask a character for a selfie, a photo, or a drawing — and they will generate one using your connected Image Generation setup (native SillyTavern plugin.)
 
 It works naturally in conversation, just as you'd ask a real person:
 
@@ -168,11 +170,13 @@ EchoText reads the character card to extract visual appearance details automatic
 
 Characters can also **offer** images organically in conversation — and a natural reply like *"yes please"* or *"go ahead"* will trigger the generation automatically.
 
-![Full-screen lightbox view of a generated image with prompt details below](EchoText-ReadmeImages/image-lightbox.png)
+![Full-screen lightbox view of a generated image with prompt details below](https://github.com/user-attachments/assets/53902d7a-7f8e-4461-8679-f7c7f90d3554)
 
 Generated images appear as inline bubbles in chat. Click any image to open it full-screen, with an expandable section below showing the exact prompt that was used.
 
-> **Requires:** Stable Diffusion connected to SillyTavern via its built-in SD integration.
+> **Requires:** SillyTavern's Image Generation plugin enabled and set up with a connected generation source (ComfyUI, Gemini, OpenRouter, etc.)
+
+**Note**: Character consistency/accuracy is difficult when characters generate selfies of themselves. Until better multimodal/omnimodal options become available, use the Description Override in Gallery to finetune the appearance of each character.
 
 </details>
 
@@ -182,14 +186,15 @@ Generated images appear as inline bubbles in chat. Click any image to open it fu
 <summary><strong>🗂️ Image Gallery</strong></summary>
 <br>
 
+<strong>Note</strong>: Gallery option only available when Image Generation is enabled.
+
 Every generated image is automatically saved to a **per-character gallery** you can browse at any time. Open it from the three-dot overflow menu in the panel header.
 
 - Sort by **Newest**, **Oldest**, or **Name (A–Z)**
-- Switch between **grid** and **list** views
+- Toggle between **grid** and **list** views
 - Adjust thumbnail size with a live-preview slider
 - Edit image titles inline
-- Expand any image's full SD prompt, with a one-click copy button
-- Delete images with a two-click confirmation
+- Expand any image's full prompt, with a one-click copy button
 
 ![Character image gallery showing a grid of generated images with titles and prompts](EchoText-ReadmeImages/gallery.png)
 
@@ -201,18 +206,18 @@ Every generated image is automatically saved to a **per-character gallery** you 
 <summary><strong>💾 Chat Archives</strong></summary>
 <br>
 
-Save complete conversations and restore them exactly as they were — including all messages, timestamps, and the character's full **emotional state at the moment you saved**.
+Save complete conversations and restore them exactly as they were — including all messages, timestamps, and the character's full emotional state at the moment you saved (**Tethered**) or chat influence settings (**Untethered**).
 
-When you load a save, that emotional state is restored too. The character doesn't pick up from a blank slate — they pick up from where they *were*.
+When you load a save, the emotional state/chat influence is restored too. The character doesn't pick up from a blank slate — they pick up from where they *were*.
 
 Before committing to a load, the preview panel gives you a rich snapshot:
 
-- The last several messages as a live chat preview
-- All 9 Plutchik emotion bars with values and intensity labels
+- All messages as a live chat preview
+- For Tethered saves: All 9 emotional state bars with values and intensity labels
 - For Untethered saves: active mood, personality, and voice with influence percentages displayed as mini progress bars
 - For Group saves: per-member emotional summaries
 
-![Chat Archives modal with message preview and emotional state bars](EchoText-ReadmeImages/chat-archives.png)
+![Chat Archives modal with message preview and emotional state bars](https://github.com/user-attachments/assets/b9a178b3-1c22-4210-97df-bcbb477ac293)
 
 Saves are organized by mode — Tethered, Untethered, Group, and Group Combined — so you always know the context a save came from. Conversation names are editable inline, and a quick-chip in the save list shows the dominant emotion or active mood at a glance.
 
@@ -224,7 +229,7 @@ Saves are organized by mode — Tethered, Untethered, Group, and Group Combined 
 <summary><strong>🧠 Memory System</strong></summary>
 <br>
 
-When something meaningful happens in conversation — a shared joke, a confession, a detail you want the character to carry forward — you can **highlight it** and save it as a Memory. EchoText will weave it back into future conversations organically.
+When you share something meaningful in conversation — a shared joke, a confession, a detail you want the character to carry forward — you can **highlight it** and save it as a Memory. EchoText will weave it back into future conversations organically.
 
 Memories are organized into categories:
 
@@ -241,7 +246,7 @@ Memories can be saved **globally** (available with any character) or **per chara
 
 Injection uses organic jitter to keep things natural — pinned memories always appear, while unpinned ones rotate on a cooldown so the character isn't mechanically repeating the same reference every message.
 
-EchoText also **auto-detects** potential memory candidates in your messages and highlights them as subtle prompts for saving.
+EchoText **auto-detects** potential memory candidates in your messages and highlights them as subtle prompts for saving. However, you can add memories manually in Settings > Memory.
 
 </details>
 
@@ -271,7 +276,7 @@ Click the character's name in the panel header to open the **Character Picker** 
 - 👥 **Group Chats** — Jump directly into a multi-character group session
 - 🔍 **Search** — Filter by name in real time
 
-![Character picker dropdown with favorites, group chats, and full character list](EchoText-ReadmeImages/character-select.png)
+![Character picker dropdown with favorites, group chats, and full character list](https://github.com/user-attachments/assets/2bf261b9-ff9e-4e7f-83bb-686e7aeaaf21)
 
 In **Group Chat** mode, a member bar appears at the bottom of the panel with quick-switch buttons for each character. Each member has their own independent emotional state, proactive schedule, and chat history. Unread indicators pulse on members who have sent a proactive message while you were focused elsewhere.
 
@@ -292,7 +297,11 @@ In **Group Chat** mode, a member bar appears at the bottom of the panel with qui
 
 Once installed, a small floating button will appear in your SillyTavern window. Click it to open the panel.
 
-![The EchoText floating action button in the SillyTavern interface](EchoText-ReadmeImages/action-button.png)
+![The EchoText floating action button in the SillyTavern interface](https://github.com/user-attachments/assets/78a923ee-9eea-473a-ab98-96ca30043ac9)
+
+### Optional Server Plugin:
+
+Due to how browsers work, when you tab away from SillyTavern or minimize the browser, the proactive messaging in EchoText pauses. To bypass this limitation and allow characters to message you even when SillyTavern isn't visible, install the server plugin. To learn more and to install the server plugin, visit <a href="https://github.com/mattjaybe/SillyTavern-EchoText-Proactive/">https://github.com/mattjaybe/SillyTavern-EchoText-Proactive/</a>
 
 ### First Steps
 
@@ -320,7 +329,7 @@ EchoText generates responses through its own configurable pipeline — independe
 
 - [SillyTavern](https://github.com/SillyTavern/SillyTavern) — latest stable version recommended
 - A text generation backend (anything SillyTavern supports)
-- *(Optional)* Stable Diffusion connected to SillyTavern for image generation features
+- *(Optional)* SillyTavern's Image Generation plugin enabled and connected for image generation features
 
 ---
 
