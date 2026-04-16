@@ -30,7 +30,7 @@ It lives as a draggable, resizable panel floating over SillyTavern. Text a diffe
 | | Feature | What it does |
 |:---:|:---|:---|
 | 🔗 | **Tethered Mode** | Chat with character's awareness of your SillyTavern roleplay with them |
-| 🌐 | **Untethered Mode** | Standalone conversation — set chat influence for the character |
+| ⛓️‍💥 | **Untethered Mode** | Standalone conversation — set chat influence for the character |
 | ❤️ | **Emotional Intelligence** | Characters develop emotional states that evolve with every exchange |
 | 🎭 | **Chat Influence** | Set a character's mood, personality, and voice for untethered conversations |
 | 🔔 | **Proactive Messaging** | Characters reach out on their own — morning texts, check-ins, and more |
@@ -47,7 +47,7 @@ It lives as a draggable, resizable panel floating over SillyTavern. Text a diffe
 ## Features
 
 <details>
-<summary><strong>🔗 Tethered Mode &amp; 🌐 Untethered Mode</strong></summary>
+<summary><strong>🔗 Tethered Mode &amp; ⛓️‍💥 Untethered Mode</strong></summary>
 <br>
 
 EchoText has two distinct ways to chat, designed for different situations.
