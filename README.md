@@ -13,7 +13,11 @@ A [SillyTavern](https://github.com/SillyTavern/SillyTavern) extension that adds 
 
 ---
 
-![EchoText running alongside SillyTavern's main roleplay](https://github.com/user-attachments/assets/08f4bef1-1da0-4bdf-91bb-26012fb40e0d)
+<div align="center">
+   
+   ![EchoText running alongside SillyTavern's main roleplay](https://github.com/user-attachments/assets/08f4bef1-1da0-4bdf-91bb-26012fb40e0d)
+
+</div>
 
 *EchoText floating alongside SillyTavern's main roleplay window — two separate conversations, one seamless interface.*
 
@@ -69,6 +73,134 @@ Switching characters in EchoText does **not** affect what's happening in SillyTa
 ---
 
 <details>
+<summary><strong>⚙️ Settings Reference</strong></summary>
+<br>
+
+Everything is accessible from the EchoText Settings, opened via the three-dot overflow menu in the panel header. Settings are divided into accordion sections for a clean, uncluttered view.
+
+---
+
+#### General
+
+| Setting | Description |
+|:---|:---|
+| **Enable EchoText** | Master on/off toggle for the floating button and panel |
+| **Dynamic Emotion System** | Track the character's emotional state across all 9 Plutchik emotions |
+| **Auto-Open on Reload** | Automatically open the panel when SillyTavern loads |
+| **Auto-Load Last Character** | Resume with the character you were texting in the previous session |
+| **Auto-scroll to Latest** | Keep the chat scrolled to the newest message automatically |
+| **Verbosity Default** | Set a default reply length: Short, Medium, or Long. Adjustable per-message from the bubble menu |
+| **Show Character Avatar** | Display the character's avatar (or an initial circle) next to their messages |
+
+---
+
+#### Generation Engine
+
+Choose where EchoText sends its generation requests — independently from whatever SillyTavern's main chat is using.
+
+| Source | Notes |
+|:---|:---|
+| **Default (Main API)** | Uses SillyTavern's currently active connection |
+| **Connection Profile** ⭐ | Recommended — pick any saved ST Connection Profile for a dedicated EchoText model |
+| **Ollama** | Direct connection to a local Ollama instance |
+| **OpenAI Compatible** | Any OpenAI-format endpoint — LM Studio, KoboldCPP, TextGen WebUI, vLLM, and more |
+
+---
+
+#### Context
+
+Control what background information the character has access to when generating replies.
+
+| Toggle | What it includes |
+|:---|:---|
+| **EchoText Messages** | Recent messages from the EchoText conversation itself |
+| **SillyTavern Context** | *(Tethered mode)* Silently reads recent ST chat to detect emotional state — the character carries their roleplay mood into EchoText without those messages appearing in the conversation |
+| **Character Description** | The character's description field from their card |
+| **Personality** | The character's personality field |
+| **Scenario** | The scenario/world context from the character card |
+| **Your Persona** | Your active SillyTavern persona |
+| **World Info / Lorebook** | Active World Info entries with an Insertion Order of 250 or higher |
+
+---
+
+#### Appearance
+
+| Setting | Description |
+|:---|:---|
+| **Theme** | 8 built-in visual themes with distinct color palettes |
+| **Font Size** | 10–24px slider |
+| **Font Family** | Choose from a curated list of Google Fonts, loaded live |
+| **Glassmorphism Blur** | Controls the frosted-glass background blur (0–40px) |
+| **Panel Opacity** | How transparent the panel background appears (20–100%) |
+| **Line Spacing** | Space between lines within a bubble (1.0–2.0) |
+| **Message Spacing** | Vertical gap between bubbles (2–24px) |
+
+---
+
+#### Action Button
+
+| Setting | Description |
+|:---|:---|
+| **Button Size** | 22–76px slider for the floating action button |
+| **Button Opacity** | Set the opacity of the action button from 10% to 100% |
+| **Button Icon** | Choose from 10 icons: Comment Dots, Message, Comments, Mobile, Robot, Heart, Star, Bolt, Fire, or Magic |
+
+---
+
+#### Proactive Messages
+
+Set how often and under what conditions the character reaches out on their own.
+
+| Activity Level | Frequency |
+|:---|:---|
+| **Quiet** | ~1–2 messages per day. Minimal API usage, great for token budgets |
+| **Relaxed** | ~3 messages per day. A gentle, unobtrusive presence |
+| **Natural** *(default)* | Dynamic, emotion-influenced frequency — roughly 4–6 per day when active |
+| **Lively** | ~6–8 per day. More ready to reach out when emotions are elevated |
+| **Expressive** | No frequency floor — the trigger system drives everything |
+| **Custom** | Set your own minimum gap with a slider (15 min – 12 hours) |
+
+**Emotion-Driven Urgency** — When enabled, strong anticipation or sadness can shorten the wait between messages. Anger and disgust extend it (or trigger a ghost window where the character delays responding).
+
+The **Proactive Insights** panel displays a live summary: current character, check cadence, when you last messaged, when the character last replied, and the most recent trigger type. A **Trigger Timeline Diagnostics** accordion shows which trigger types are currently armed and why, useful for understanding the character's behavior.
+
+---
+
+#### Memory System
+
+| Setting | Description |
+|:---|:---|
+| **Enable Memory System** | Inject relevant shared memories into the system prompt during generation |
+| **Auto-Highlight Memories** | Scan your messages for memorable content and highlight it. Click any highlight to save it as a memory |
+| **Highlight Style** | Choose how highlights appear: Dotted Underline, Soft Glow, Shimmer, or Accent Bar |
+| **Memory Scope** | **Per Character** — each character keeps their own memory pool. **Global** — memories shared across all characters |
+
+The memory list lives directly in Settings. Add memories manually with a label, category, and description. Pin a memory to ensure it's always injected, or leave it unpinned to let EchoText rotate it organically.
+
+---
+
+#### Image Generation
+
+| Setting | Description |
+|:---|:---|
+| **Enable Image Generation** | Allow characters to respond to natural-language image requests with generated images |
+| **Include Text Alongside Image** | When enabled, the character also sends a short in-character message with the photo |
+
+An expandable **"What triggers image generation?"** reference section lists all recognized phrase patterns across five categories — selfie requests, photo/sharing requests, drawing requests, make/create requests, and affirmative replies to character-offered images — with copyable example phrases.
+
+> Requires SillyTavern's **Image Generation** extension enabled and configured with a working image source (ComfyUI, Gemini, etc.).
+
+<div align="center">
+   
+![The EchoText Settings panel that lets you set all your preferences](https://github.com/user-attachments/assets/baf47bb2-8aa9-4251-882d-9dd7cf8ff9db)
+
+</div>
+
+</details>
+
+---
+
+<details>
 <summary><strong>❤️ Emotional Intelligence</strong></summary>
 <br>
 
@@ -82,7 +214,11 @@ EchoText tracks a character's emotional state across all 9 emotions on **Plutchi
 
 Click the emotion badge in the panel header below the character's name at any time to see the full breakdown — all 9 emotions with live values, current deltas, and intensity labels like "Serenity," "Ecstasy," or "Apprehension."
 
-![Emotional state popup showing all 9 Plutchik emotions with current values](https://github.com/user-attachments/assets/03917a76-45d3-4a45-bcde-ce66b1d70423)
+<div align="center">
+   
+   ![Emotional state popup showing all 9 Plutchik emotions with current values](https://github.com/user-attachments/assets/03917a76-45d3-4a45-bcde-ce66b1d70423)
+
+</p>
 
 > **Tethered bonus:** Enable *SillyTavern Context* and the character's emotional state will also shift from what happens in your main roleplay. An emotionally charged scene in SillyTavern will organically bleed into how the character feels when you converse with them in EchoText.
 
@@ -108,9 +244,17 @@ Mood and Personality has an **Intensity slider** (0–100%) to dial in how stron
 
 Your active selections appear as colored icon badges in the panel header for a quick at-a-glance reminder. Chat Influence settings are also saved and restored with Chat Archives, so loading an old conversation brings back exactly the flavor it had.
 
+<div align="center">
+   
 ![Chat Influence menu with mood selection grid](https://github.com/user-attachments/assets/1564f2e6-cf10-4f20-bf83-c7aa65a05a1c)
 
+</div>
+
+<div align="center">
+   
 ![Chat panel in Untethered mode with influence badges visible in the header](https://github.com/user-attachments/assets/e4587bad-1d6c-402d-9260-7ed56499b3da)
+
+</div>
 
 </details>
 
@@ -170,7 +314,11 @@ EchoText reads the character card to extract visual appearance details automatic
 
 Characters can also **offer** images organically in conversation — and a natural reply like *"yes please"* or *"go ahead"* will trigger the generation automatically.
 
+<div align="center">
+
 ![Full-screen lightbox view of a generated image with prompt details below](https://github.com/user-attachments/assets/53902d7a-7f8e-4461-8679-f7c7f90d3554)
+
+</div>
 
 Generated images appear as inline bubbles in chat. Click any image to open it full-screen, with an expandable section below showing the exact prompt that was used.
 
@@ -196,7 +344,11 @@ Every generated image is automatically saved to a **per-character gallery** you 
 - Edit image titles inline
 - Expand any image's full prompt, with a one-click copy button
 
-![Character image gallery showing a grid of generated images with titles and prompts](EchoText-ReadmeImages/gallery.png)
+<div align="center">
+
+![Character image gallery showing a grid of generated images with titles and prompts](https://github.com/user-attachments/assets/1638cf5d-1149-4322-8356-1d7173045e47)
+
+</div>
 
 </details>
 
@@ -217,7 +369,11 @@ Before committing to a load, the preview panel gives you a rich snapshot:
 - For Untethered saves: active mood, personality, and voice with influence percentages displayed as mini progress bars
 - For Group saves: per-member emotional summaries
 
+<div align="center">
+
 ![Chat Archives modal with message preview and emotional state bars](https://github.com/user-attachments/assets/b9a178b3-1c22-4210-97df-bcbb477ac293)
+
+</div>
 
 Saves are organized by mode — Tethered, Untethered, Group, and Group Combined — so you always know the context a save came from. Conversation names are editable inline, and a quick-chip in the save list shows the dominant emotion or active mood at a glance.
 
@@ -276,7 +432,11 @@ Click the character's name in the panel header to open the **Character Picker** 
 - 👥 **Group Chats** — Jump directly into a multi-character group session
 - 🔍 **Search** — Filter by name in real time
 
+<div align="center">
+
 ![Character picker dropdown with favorites, group chats, and full character list](https://github.com/user-attachments/assets/2bf261b9-ff9e-4e7f-83bb-686e7aeaaf21)
+
+</div>
 
 In **Group Chat** mode, a member bar appears at the bottom of the panel with quick-switch buttons for each character. Each member has their own independent emotional state, proactive schedule, and chat history. Unread indicators pulse on members who have sent a proactive message while you were focused elsewhere.
 
@@ -297,7 +457,12 @@ In **Group Chat** mode, a member bar appears at the bottom of the panel with qui
 
 Once installed, a small floating button will appear in your SillyTavern window. Click it to open the panel.
 
+<div align="center">
+
 ![The EchoText floating action button in the SillyTavern interface](https://github.com/user-attachments/assets/78a923ee-9eea-473a-ab98-96ca30043ac9)
+
+</div>
+
 
 ### Optional Server Plugin:
 
@@ -333,10 +498,56 @@ EchoText generates responses through its own configurable pipeline — independe
 
 ---
 
-<div align="center">
+## More Extensions
 
-Made by **mattjaybe**
+<table>
+<tr>
+<td width="33%" valign="top">
 
-*EchoText is a fan-made extension for SillyTavern and is not affiliated with or endorsed by the SillyTavern project.*
+### 🗣️ [EchoChamber](https://github.com/mattjaybe/SillyTavern-EchoChamber)
 
-</div>
+**Bring your stories to life with an AI-powered audience.**
+
+EchoChamber generates a live reaction feed that runs alongside your SillyTavern roleplay. Reactions appear as a scrolling stream below your chat in whatever flavor fits the scene — a Discord server blowing up, a Twitter thread going viral, a Breaking News ticker, or MST3K-style commentary roasting your story in real time.
+
+- 11+ chat styles built-in, including NSFW styles
+- Build and share your own custom styles
+- Chat *with* the audience — @mention individual commenters and get replies
+- Livstream mode turns the feed into a rolling live chatroom
+- Flexible panel: Bottom, Top, Left, Right, or floating pop-out
+- Uses your existing SillyTavern connection or its own dedicated backend
+
+</td>
+<td width="33%" valign="top">
+
+### 🧭 [Pathweaver](https://github.com/mattjaybe/SillyTavern-Pathweaver)
+
+**Never stare at a blank prompt again.**
+
+Pathweaver adds a control bar above your SillyTavern chat input that generates up to 6 story suggestions on demand. It reads your current conversation to understand exactly where the story is, then serves up tailored options — from genre-faithful "what happens next" continuations to curveball plot twists and new character entrances.
+
+- 8 suggestion types: Context-Aware, Plot Twist, New Character, Director, Surprise Me, Explicit, Genre, and Custom
+- **Director Mode** lets you type your own scene direction and get targeted suggestions
+- **Surprise Me** secretly plants a suggestion that triggers later in the story
+- Cards can be Copied, Inserted into your input, or Sent directly
+- Works on desktop and mobile
+
+</td>
+<td width="33%" valign="top">
+
+### 🌈 [Larson](https://github.com/mattjaybe/SillyTavern-Larson)
+
+**A beautifully animated status bar that makes waiting feel intentional.**
+
+Larson replaces SillyTavern's static generation indicator with a full-width animated bar above your message input. Eight distinct animation styles, three independently configurable states (Generating, Thinking, Idle), and an extensive theming system including a custom 4-color creator.
+
+- **8 animations:** Gradient, Breathe, Pulse, Cylon, Segment, Glitch, Liquid, Convergence
+- Each state (Generating / Thinking / Idle) has its own animation, speed, and color
+- 9 built-in themes + custom theme creator with live preview
+- Smart thinking detection for reasoning-capable models
+- Click the bar to instantly access all settings
+- Lightweight, mobile-optimized
+
+</td>
+</tr>
+</table>
