@@ -1,0 +1,652 @@
+/* ============================================================
+   EchoText — Mobile / iOS Stylesheet
+   Loaded ONLY when isMobileDevice() returns true in index.js.
+   All rules use !important to override inline styles set by the
+   desktop positioning logic without touching style.css itself.
+   ============================================================ */
+
+/* ============================================================
+   FLOATING ACTION BUTTON — safe-area anchoring
+   Inline position styles are cleared by positionFab() on mobile,
+   so these CSS rules take full effect without needing !important
+   on positioning properties. z-index bump stays important to
+   defeat SillyTavern's own fixed chrome on narrow viewports.
+   ============================================================ */
+
+#et-fab {
+    /* Absolute instead of fixed so it maps to the #et-portal container */
+    position: absolute !important;
+    /* Explicitly re-enable pointer events since the portal disables them */
+    pointer-events: auto !important;
+    /* Position is fully JS-controlled via positionFab() / snapFabToEdge().
+       Those functions use a 24 px margin that clears the iOS home indicator.
+       We deliberately leave right/bottom/left/top unset here so the JS values
+       aren't overridden by CSS (positionFab sets inline styles which beat
+       non-!important CSS, but clearing them here avoids any confusion). */
+    /* Stay above SillyTavern's mobile header/drawer chrome */
+    z-index: 99990 !important;
+    /* Minimum 44 × 44 px tap target (Apple HIG) */
+    min-width:  44px !important;
+    min-height: 44px !important;
+}
+
+/* Ensure the button is fully gone when panel is open or disabled on mobile */
+#et-fab.et-fab-hidden,
+#et-fab.et-fab-disabled {
+    display: none !important;
+    pointer-events: none !important;
+}
+
+/* Avoid double-tap required on iOS for hover-based chat bubble actions.
+   iOS Safari treats the first tap on a hover-hidden element as 'hover'
+   and requires a second tap for 'click'. We force them always-visible. */
+.et-bubble-actions,
+.et-react-btn,
+.et-dots-btn {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* ============================================================
+   FLOATING PANEL — full-screen on mobile
+   The JS openPanel() mobile branch skips setting width/height/
+   left/top inline styles, so all of these will apply cleanly.
+   ============================================================ */
+
+.et-panel {
+    /* Absolute instead of fixed so it maps to the #et-portal container */
+    position: absolute !important;
+    /* Explicitly re-enable pointer events since the portal disables them */
+    pointer-events: auto !important;
+    /* Fill the visible area below any notch/status bar */
+    top:    env(safe-area-inset-top, 0px) !important;
+    left:   0 !important;
+    right:  0 !important;
+    bottom: 0 !important;
+    width:  100% !important;
+    height: calc(100% - env(safe-area-inset-top, 0px)) !important;
+    /* Flush edges — no rounded corners on full-screen mobile sheet */
+    border-radius: 0 !important;
+    /* No minimum constraints needed — viewport IS the panel */
+    min-width:  unset !important;
+    min-height: unset !important;
+    /* Fade-only animation to avoid iOS compositor jank from scale */
+    transition: opacity 0.22s ease !important;
+    transform:  none !important;
+}
+
+/* Hide resize handle chrome — meaningless on full-screen mobile */
+.et-resize-handle {
+    display: none !important;
+}
+
+/* Remove drag cursor — panel isn't draggable on mobile */
+.et-panel-header {
+    cursor: default !important;
+}
+
+/* ============================================================
+   MESSAGES AREA — iOS momentum scroll + overscroll containment
+   ============================================================ */
+
+.et-messages {
+    /* Momentum / rubber-band scroll on iOS */
+    -webkit-overflow-scrolling: touch;
+    /* Prevent pull-to-refresh from hijacking chat scrolling */
+    overscroll-behavior: contain;
+}
+
+/* ============================================================
+   INPUT BAR — sticks above the on-screen keyboard
+   The visualViewport resize handler in index.js shrinks the panel
+   height when the keyboard appears, so position:sticky keeps the
+   bar at the new visual bottom automatically.
+   ============================================================ */
+
+.et-input-bar {
+    /* Ensure the bar is always visible at the bottom of the panel */
+    position: sticky !important;
+    bottom: 0 !important;
+    /* Always keep at least 10px clearance; grow to cover the home indicator if present */
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px) !important;
+    padding-left:  8px !important;
+    padding-right: 8px !important;
+    /* Lift above other scrolling content */
+    z-index: 10;
+    /* Solid backdrop so messages don't bleed through when scrolling */
+    background: rgba(18, 18, 24, 0.98) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+}
+
+/* ============================================================
+   TOUCH TARGET SIZES — Apple HIG minimum 44 × 44 px
+   ============================================================ */
+
+.et-header-btn,
+.et-mode-toggle,
+.et-close-btn,
+.et-send-btn,
+.et-react-btn,
+.et-dots-btn,
+.et-lightbox-close,
+.et-lightbox-prompt-toggle {
+    min-width:  44px !important;
+    min-height: 44px !important;
+}
+
+/* ============================================================
+   DROP-DOWN MENUS — cap height so they never overflow viewport
+   ============================================================ */
+
+.et-dd-menu {
+    max-height: min(280px, 50vh) !important;
+}
+
+/* ============================================================
+   LIGHTBOX — safe-area padding + full-width container
+   ============================================================ */
+
+.et-generated-image-lightbox-overlay {
+    /* Absolute (not fixed) so it fills the portal, not the offset layout viewport.
+       position:fixed inside a position:fixed portal resolves against the layout
+       viewport on iOS — which sits above the visible screen when the address bar
+       is showing — causing the overlay to render off the top of the screen.     */
+    position: absolute !important;
+    inset: 0 !important;
+    /* Account for notch / home indicator on iOS */
+    padding: env(safe-area-inset-top,    10px)
+             env(safe-area-inset-right,  10px)
+             calc(env(safe-area-inset-bottom, 10px) + 10px)
+             env(safe-area-inset-left,   10px) !important;
+    /* Allow the overlay to scroll if the image is taller than the viewport */
+    align-items: flex-start;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Portal has pointer-events:none; child must opt back in explicitly */
+    pointer-events: auto !important;
+}
+
+.et-lightbox-container {
+    height: auto !important;
+    max-height: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: var(--et-radius-md, 14px) !important;
+}
+
+.et-lightbox-img {
+    /* Let the image fill the width on mobile */
+    width:  100% !important;
+    height: auto !important;
+    /* Include transform in transition so the slide animation plays correctly */
+    transition: opacity 0.15s ease, transform 0.15s ease !important;
+    will-change: opacity, transform;
+}
+
+.et-lightbox-img-wrap {
+    /* Don't restrict the wrap height — image drives the size */
+    min-height: 0 !important;
+    flex: 0 0 auto !important;
+    /* Clip slide overshoot so images don't bleed outside the container */
+    overflow: hidden !important;
+}
+
+/* ── Directional slide on image-change ────────────────────────────────────── */
+/*
+   data-nav-dir is stamped on .et-lightbox-img-wrap by navigateTo() in index.js:
+     "fwd"  → going forward (next image)
+     "bck"  → going backward (prev image)
+
+   Out phase: current image fades + slides in the swipe direction.
+   In  phase: new image slides in from the opposite edge via keyframe animation.
+*/
+
+/* Out — swipe left (next): slide current image to the left */
+[data-nav-dir="fwd"] .et-lightbox-img-nav-fade {
+    opacity: 0 !important;
+    transform: translateX(-28px) !important;
+}
+
+/* Out — swipe right (prev): slide current image to the right */
+[data-nav-dir="bck"] .et-lightbox-img-nav-fade {
+    opacity: 0 !important;
+    transform: translateX(28px) !important;
+}
+
+/* In — after swipe left (next): new image enters from the right */
+@keyframes et-nav-in-fwd {
+    from { opacity: 0; transform: translateX(28px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+/* In — after swipe right (prev): new image enters from the left */
+@keyframes et-nav-in-bck {
+    from { opacity: 0; transform: translateX(-28px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+[data-nav-dir="fwd"] .et-lightbox-img-nav-in {
+    animation: et-nav-in-fwd 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
+}
+
+[data-nav-dir="bck"] .et-lightbox-img-nav-in {
+    animation: et-nav-in-bck 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
+}
+
+
+/* ============================================================
+   EMOTION POPUP & UNTETHERED POPUP
+   Centre in the full-screen panel (= viewport on mobile).
+   JS calls popup.css({ top/left/transform }) AFTER these rules,
+   so we use !important to win versus the JS inline styles.
+   ============================================================ */
+
+#et-emotion-popup,
+#et-uc-popup {
+    /* Centre in viewport */
+    top:       50% !important;
+    left:      50% !important;
+    transform: translate(-50%, -50%) !important;
+    /* Cap height and scroll internally if content is tall */
+    max-height: calc(100% - 80px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    /* Ensure the popup is never wider than the screen */
+    max-width: calc(100% - 24px) !important;
+    width: min(380px, calc(100% - 24px)) !important;
+}
+
+/* ============================================================
+   SETTINGS MODAL — full-screen
+   ============================================================ */
+
+.et-settings-modal {
+    width:         100vw !important;
+    height:        100dvh !important;
+    max-width:     100vw !important;
+    max-height:    100dvh !important;
+    border-radius: 0 !important;
+    top:  0 !important;
+    left: 0 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+.et-modal-body {
+    /* Allow settings body to scroll on mobile */
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    /* Fill remaining height below the sticky modal header */
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+}
+
+/* ============================================================
+   SAVE / LOAD MODAL — full-screen
+   ============================================================ */
+
+/* The overlay is moved into et-portal by moveModalToPortal('#et-sl-overlay').
+   Portal has pointer-events:none — overlay must opt back in explicitly.
+   The inner modal fills the full viewport on mobile.              */
+.et-sl-overlay {
+    /* Absolute (not fixed) — same iOS layout-viewport issue as gallery/lightbox */
+    position: absolute !important;
+    inset: 0 !important;
+    /* Portal has pointer-events:none; child must opt back in explicitly */
+    pointer-events: auto !important;
+}
+
+.et-sl-modal {
+    width:         100% !important;
+    max-width:     100% !important;
+    height:        100% !important;
+    max-height:    100% !important;
+    border-radius: 0 !important;
+}
+
+.et-sl-body {
+    flex-direction: column !important;
+}
+
+.et-sl-list, .et-sl-right {
+    display: none !important;
+}
+
+.et-sl-mobile-carousel {
+    display: flex !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scroll-snap-type: x mandatory !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 16px !important;
+    padding: 16px !important;
+    box-sizing: border-box !important;
+}
+
+.et-sl-mobile-card {
+    scroll-snap-align: center !important;
+    flex: 0 0 calc(100vw - 32px) !important;
+    height: 100% !important;
+    background: rgba(40, 45, 60, 0.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+}
+
+.et-sl-mobile-card-header {
+    padding: 12px 14px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    flex-shrink: 0 !important;
+}
+
+.et-sl-mobile-card-title-row {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+}
+
+.et-sl-mobile-card-name {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    color: var(--et-text) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    flex: 1 !important;
+}
+
+.et-sl-mobile-card-body {
+    flex: 1 1 auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 12px !important;
+}
+
+.et-sl-mobile-card-footer {
+    display: flex !important;
+    gap: 8px !important;
+    padding: 12px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    flex-shrink: 0 !important;
+}
+
+/* ============================================================
+   GALLERY MODAL — full-screen
+   ============================================================ */
+
+.et-gallery-overlay {
+    /* Absolute (not fixed) — same iOS layout-viewport issue as lightbox/saveload */
+    position: absolute !important;
+    inset: 0 !important;
+    padding: 0 !important;
+    /* Portal has pointer-events:none; child must opt back in explicitly */
+    pointer-events: auto !important;
+}
+
+.et-gallery-modal {
+    width:         100% !important;
+    height:        100% !important;
+    border-radius: 0 !important;
+}
+
+/* Increase specificity to override desktop list-view grid rules */
+#et-gallery-overlay .et-gallery-grid {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    justify-content: flex-start !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scroll-snap-type: x mandatory !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 16px !important;
+    padding: 16px !important;
+    flex: 1 1 auto !important;
+    align-content: stretch !important;
+}
+
+#et-gallery-overlay .et-gallery-card {
+    scroll-snap-align: center !important;
+    flex: 0 0 calc(100vw - 32px) !important;
+    min-width: calc(100vw - 32px) !important;
+    width: calc(100vw - 32px) !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border-radius: 12px !important;
+    background: rgba(255,255,255,0.05) !important;
+}
+
+#et-gallery-overlay .et-gallery-thumb-btn {
+    flex-shrink: 0 !important;
+    height: 40vh !important;
+    min-height: 280px !important;
+    max-height: 400px !important;
+    width: 100% !important;
+}
+
+#et-gallery-overlay .et-gallery-thumb-btn img {
+    width: 100% !important;
+    height: 100% !important;
+    aspect-ratio: auto !important;
+    object-fit: cover !important;
+    object-position: center top !important;
+}
+
+#et-gallery-overlay .et-gallery-card-body {
+    flex: 1 1 auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    display: flex !important;
+    flex-direction: column !important;
+    padding: 16px !important;
+}
+
+#et-gallery-overlay .et-gallery-prompt-block {
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(0,0,0,0.12);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+#et-gallery-overlay .et-gallery-prompt-block-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.86);
+}
+
+#et-gallery-overlay .et-gallery-prompt-block-header span {
+    flex: 1;
+}
+
+#et-gallery-overlay .et-gallery-prompt-text {
+    max-height: none !important;
+}
+
+#et-gallery-overlay .et-gallery-prompt-accordion {
+    display: block !important;
+    margin-top: 8px !important;
+}
+
+#et-gallery-overlay .et-gallery-sort-wrap,
+#et-gallery-overlay .et-gallery-size-wrap,
+#et-gallery-overlay .et-gallery-title-edit-hint,
+#et-gallery-overlay .et-gallery-view-pill {
+    display: none !important;
+}
+
+#et-gallery-overlay .et-gallery-modal {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+#et-gallery-overlay .et-gallery-body {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+}
+
+#et-gallery-overlay .et-gallery-override-panel {
+    max-height: 30vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+/* ============================================================
+   DOT MENUS — cap height & ensure they don't overflow
+   ============================================================ */
+
+.et-dots-menu {
+    max-height: 60vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================================
+   CHARACTER PICKER — full height, scrollable on mobile
+   ============================================================ */
+
+.et-char-picker-dropdown {
+    max-height: calc(100% - 80px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================================
+   PANEL ACCORDION (settings-in-panel) — overflow-safe
+   ============================================================ */
+
+.et-accordion-content {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    max-height: 70vh !important;
+}
+
+/* ============================================================
+   MEMORY SAVE MODAL — keep it within mobile viewport
+   ============================================================ */
+
+.et-mem-save-modal {
+    max-width:  calc(100% - 32px) !important;
+    max-height: 80vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================================
+   GROUP BAR — prevent horizontal bleed on narrow screens
+   ============================================================ */
+
+.et-group-bar {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    /* Hide scrollbar but keep scroll functionality */
+    scrollbar-width: none;
+}
+
+.et-group-bar::-webkit-scrollbar {
+    display: none;
+}
+
+/* ============================================================
+   GALLERY — mobile single-column full-width layout
+   ============================================================ */
+
+/* Hide the grid/list view toggle — grid-only on mobile */
+#et-gallery-view-pill {
+    display: none !important;
+}
+
+/* Guarantee the close button is always rendered and tappable.
+   The desktop stylesheet may hide it or collapse the toolbar on
+   narrow viewports after the view pill is removed from flow.   */
+#et-gallery-close,
+.et-gallery-close {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    flex-shrink: 0 !important;
+    min-width:  44px !important;
+    min-height: 44px !important;
+    pointer-events: auto !important;
+}
+
+/* Prevent the toolbar from clipping the close button when the
+   view pill is hidden and the remaining items reflow.          */
+.et-gallery-toolbar {
+    overflow: visible !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+}
+
+/* ── Single-column full-width card list ────────────────────── */
+
+/* Stack cards vertically, stretching to the full modal width   */
+.et-gallery-modal .et-gallery-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 8px 12px !important;
+    gap: 12px !important;
+    /* Reset any desktop grid / column-count rules                */
+    grid-template-columns: unset !important;
+    column-count: unset !important;
+}
+
+/* Each card spans the full width; no desktop min-width cap      */
+.et-gallery-modal .et-gallery-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* Thumbnail button fills the card horizontally                  */
+.et-gallery-modal .et-gallery-thumb-btn {
+    display: block !important;
+    width: 100% !important;
+}
+
+/* Image fills the full card width.
+   Height is driven by --et-gallery-thumb-size so the thumbnail
+   size slider continues to work in real-time on mobile —
+   it controls the image preview height rather than card width.  */
+.et-gallery-modal .et-gallery-thumb {
+    display: block !important;
+    width: 100% !important;
+    height: var(--et-gallery-thumb-size, 240px) !important;
+    object-fit: cover !important;
+}
+
+/* ============================================================
+   SLIDERS — iOS / iPhone touch fix
+   touch-action: none stops the scroll container from claiming
+   the gesture. All value-tracking is handled by the JS patch
+   in settings-modal.js — no visual changes needed here.
+   ============================================================ */
+
+.et-slider {
+    touch-action: none !important;
+}

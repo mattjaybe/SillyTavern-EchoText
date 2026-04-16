@@ -15,15 +15,12 @@
                 <span style="font-weight: bold;"><i class="fa-solid fa-power-off"></i> Enable EchoText</span>
             </label>
 
-            <button id="et-open-settings-btn" class="menu_button et-open-settings-btn">
-                <i class="fa-solid fa-gear"></i> <span>Open EchoText Settings</span>
-            </button>
 
             <!-- Accordion Settings Panel -->
             <div class="et-accordion-settings">
 
                 <!-- General Section -->
-                <div class="et-accordion-section" data-section="general">
+                <div class="et-accordion-section open" data-section="general">
                     <div class="et-accordion-header">
                         <span><i class="fa-solid fa-toggle-on"></i> General</span>
                         <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
@@ -38,6 +35,16 @@
                         </div>
 
                         <div class="et-field">
+                            <label class="et-toggle-row" for="et_emotion_system_panel">
+                                <input type="checkbox" id="et_emotion_system_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-heart-pulse"></i> Dynamic Emotion
+                                    System</span>
+                            </label>
+                            <div class="et-hint">Track the character's emotional state using Plutchik's Wheel of
+                                Emotions. Click the character's name in the panel to view their state.</div>
+                        </div>
+
+                        <div class="et-field">
                             <label class="et-toggle-row" for="et_auto_open_panel">
                                 <input type="checkbox" id="et_auto_open_panel" class="checkbox">
                                 <span class="et-label-text"><i class="fa-solid fa-door-open"></i> Auto-Open on
@@ -47,11 +54,34 @@
                         </div>
 
                         <div class="et-field">
+                            <label class="et-toggle-row" for="et_auto_load_last_char_panel">
+                                <input type="checkbox" id="et_auto_load_last_char_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-rotate-left"></i> Auto-Load Last Character</span>
+                            </label>
+                            <div class="et-hint">When SillyTavern reloads, automatically select the last character you were chatting with.</div>
+                        </div>
+
+                        <div class="et-field">
                             <label class="et-toggle-row" for="et_auto_scroll_panel">
                                 <input type="checkbox" id="et_auto_scroll_panel" class="checkbox">
                                 <span class="et-label-text"><i class="fa-solid fa-arrow-down"></i> Auto-scroll to Latest
                                     Message</span>
                             </label>
+                            <div class="et-hint">Automatically scroll down when new messages appear in the chat.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label"><i class="fa-solid fa-ruler"></i> Verbosity Default</label>
+                            <div class="et-select-wrapper">
+                                <select id="et_verbosity_default_panel" class="et-select">
+                                    <option value="short">Short</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="long">Long</option>
+                                </select>
+                                <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                            </div>
+                            <div class="et-hint">Default verbosity level for all new chats. Can be changed per-message
+                                using the options menu.</div>
                         </div>
 
                         <div class="et-field">
@@ -64,15 +94,6 @@
                                 messages.</div>
                         </div>
 
-                        <div class="et-field">
-                            <label class="et-toggle-row" for="et_emotion_system_panel">
-                                <input type="checkbox" id="et_emotion_system_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-heart-pulse"></i> Dynamic Emotion
-                                    System</span>
-                            </label>
-                            <div class="et-hint">Track the character's emotional state using Plutchik's Wheel of
-                                Emotions. Click the character's name in the panel to view their state.</div>
-                        </div>
                     </div>
                 </div>
 
@@ -137,17 +158,7 @@
                                 placeholder="Model name">
                         </div>
 
-                        <div class="et-field">
-                            <label class="et-toggle-row" for="et_anti_refusal_panel">
-                                <input type="checkbox" id="et_anti_refusal_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-shield-halved"></i> Anti-Refusal
-                                    Framing</span>
-                            </label>
-                            <div class="et-hint">Prepend a roleplay fiction frame and persona-lock reminder to the
-                                system prompt, and insert an in-character pre-fill for chat-completion backends (Profile
-                                / Ollama / OpenAI) to prevent out-of-character refusals.</div>
-                        </div>
-                    </div>
+</div>
                 </div>
 
                 <!-- Context Section -->
@@ -159,6 +170,22 @@
                     <div class="et-accordion-content">
                         <div class="et-hint" style="margin-bottom:16px;">Choose what information from SillyTavern to
                             include in the character's context when generating responses.</div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_st_messages_panel">
+                                <input type="checkbox" id="et_ctx_st_messages_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-comments"></i> EchoText Messages</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Include recent EchoText conversation messages as additional context for generation.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_st_context_panel">
+                                <input type="checkbox" id="et_ctx_st_context_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-brain"></i> SillyTavern Context</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">In Tethered mode, silently reads the character's recent SillyTavern chat to detect their emotional state. That emotion bleeds into EchoText — if they're distressed in roleplay, they'll carry that mood here. The ST messages are not included in the EchoText conversation.</div>
+                        </div>
 
                         <div class="et-field">
                             <label class="et-toggle-row" for="et_ctx_description_panel">
@@ -200,57 +227,224 @@
                                 <span class="et-label-text"><i class="fa-solid fa-globe"></i> World Info /
                                     Lorebook</span>
                             </label>
-                            <div class="et-hint et-hint-indent">Include active World Info / Lorebook entries.</div>
+                            <div class="et-hint et-hint-indent">Include active World Info / Lorebook entries. <b>Note:</b> Only entries with an Insertion Order of 250 or higher are used.</div>
+                        </div>
+
+
+
+                    </div>
+                </div>
+
+                <!-- Appearance Section -->
+                <div class="et-accordion-section" data-section="appearance">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-palette"></i> Appearance</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-field">
+                            <label class="et-field-label"><i class="fa-solid fa-swatchbook"></i> Theme</label>
+                            <div id="et_theme_panel_container">
+                                <!-- Theme dropdown will be populated by JavaScript -->
+                            </div>
                         </div>
 
                         <div class="et-field">
-                            <label class="et-toggle-row" for="et_ctx_st_messages_panel">
-                                <input type="checkbox" id="et_ctx_st_messages_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-comments"></i> SillyTavern Chat
-                                    Messages</span>
+                            <label class="et-field-label" for="et_font_size_panel">
+                                <i class="fa-solid fa-font"></i> Font Size
                             </label>
-                            <div class="et-hint et-hint-indent">Include recent messages from the main SillyTavern chat
-                                as context.</div>
-                            <div id="et_ctx_st_token_container_panel" class="et-sub-field"
-                                style="display:none; margin-top:10px;">
-                                <label class="et-field-label">
-                                    <i class="fa-solid fa-coins"></i> Token Budget
-                                </label>
-                                <div class="et-select-wrapper">
-                                    <select id="et_ctx_st_token_preset_panel" class="et-select">
-                                        <option value="low">Low (~512 tokens)</option>
-                                        <option value="medium">Medium (~1,200 tokens)</option>
-                                        <option value="high">High (~2,500 tokens)</option>
-                                        <option value="custom">Custom</option>
-                                    </select>
-                                    <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_font_size_panel" class="slider et-slider" min="10" max="24"
+                                    step="1" value="15">
+                                <span id="et_font_size_val_panel" class="et-slider-val">15px</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label"><i class="fa-solid fa-text-height"></i> Font Family</label>
+                            <div id="et_font_family_panel_container">
+                                <!-- Font dropdown will be populated by JavaScript -->
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_glass_blur_panel">
+                                <i class="fa-solid fa-droplet"></i> Glassmorphism Blur
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_glass_blur_panel" class="slider et-slider" min="0" max="40"
+                                    step="2" value="20">
+                                <span id="et_glass_blur_val_panel" class="et-slider-val">20px</span>
+                            </div>
+                            <div class="et-hint">Controls the background blur intensity behind the panel for the frosted
+                                glass effect.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_glass_opacity_panel">
+                                <i class="fa-solid fa-eye"></i> Panel Opacity
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_glass_opacity_panel" class="slider et-slider" min="20"
+                                    max="100" step="5" value="85">
+                                <span id="et_glass_opacity_val_panel" class="et-slider-val">85%</span>
+                            </div>
+                            <div class="et-hint">Adjusts how transparent the panel background appears.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_line_spacing_panel">
+                                <i class="fa-solid fa-text-height"></i> Line Spacing
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_line_spacing_panel" class="slider et-slider" min="1.0"
+                                    max="2.0" step="0.05" value="1.3">
+                                <span id="et_line_spacing_val_panel" class="et-slider-val">1.30</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_paragraph_spacing_panel">
+                                <i class="fa-solid fa-grip-lines"></i> Message Spacing
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_paragraph_spacing_panel" class="slider et-slider" min="2"
+                                    max="24" step="2" value="12">
+                                <span id="et_paragraph_spacing_val_panel" class="et-slider-val">12px</span>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Action Button Section -->
+                <div class="et-accordion-section" data-section="fab">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-circle-dot"></i> Action Button</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_fab_size_panel">
+                                <i class="fa-solid fa-expand"></i> Button Size
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_fab_size_panel" class="slider et-slider" min="22" max="76"
+                                    step="2" value="56">
+                                <span id="et_fab_size_val_panel" class="et-slider-val">56px</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label" for="et_fab_opacity_panel">
+                                <i class="fa-solid fa-eye"></i> Button Opacity
+                            </label>
+                            <div class="et-slider-row">
+                                <input type="range" id="et_fab_opacity_panel" class="slider et-slider" min="10"
+                                    max="100" step="10" value="100">
+                                <span id="et_fab_opacity_val_panel" class="et-slider-val">100%</span>
+                            </div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-field-label">
+                                <i class="fa-solid fa-icons"></i> Button Icon
+                            </label>
+                            <div class="et-custom-dropdown et-dd-up" id="et_fab_icon_panel"
+                                data-value="fa-comment-dots">
+                                <div class="et-dd-trigger">
+                                    <div class="et-dd-display">
+                                        <i class="fa-solid fa-comment-dots"></i> <span>Comment Dots</span>
+                                    </div>
+                                    <i class="fa-solid fa-chevron-down et-dd-arrow"></i>
                                 </div>
-                                <div id="et_ctx_st_token_custom_container_panel" style="display:none; margin-top:8px;">
-                                    <input type="number" id="et_ctx_st_token_custom_panel" class="et-input-text"
-                                        min="128" max="8192" step="128" placeholder="e.g. 2000"
-                                        style="margin-bottom:0;">
-                                    <div class="et-hint" style="margin-top:4px;">Approximate tokens EchoText can read
-                                        from your SillyTavern chat.</div>
+                                <div class="et-dd-menu">
+                                    <div class="et-dd-option et-dd-selected" data-value="fa-comment-dots"><i
+                                            class="fa-solid fa-comment-dots"></i> Comment Dots</div>
+                                    <div class="et-dd-option" data-value="fa-message"><i
+                                            class="fa-solid fa-message"></i> Message</div>
+                                    <div class="et-dd-option" data-value="fa-comments"><i
+                                            class="fa-solid fa-comments"></i> Comments</div>
+                                    <div class="et-dd-option" data-value="fa-mobile-screen"><i
+                                            class="fa-solid fa-mobile-screen"></i> Mobile</div>
+                                    <div class="et-dd-option" data-value="fa-robot"><i class="fa-solid fa-robot"></i>
+                                        Robot</div>
+                                    <div class="et-dd-option" data-value="fa-heart"><i class="fa-solid fa-heart"></i>
+                                        Heart</div>
+                                    <div class="et-dd-option" data-value="fa-star"><i class="fa-solid fa-star"></i> Star
+                                    </div>
+                                    <div class="et-dd-option" data-value="fa-bolt"><i class="fa-solid fa-bolt"></i> Bolt
+                                    </div>
+                                    <div class="et-dd-option" data-value="fa-fire"><i class="fa-solid fa-fire"></i> Fire
+                                    </div>
+                                    <div class="et-dd-option" data-value="fa-wand-magic-sparkles"><i
+                                            class="fa-solid fa-wand-magic-sparkles"></i> Magic</div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Appearance Section -->
+                <!-- Proactive Messages Section -->
                 <div class="et-accordion-section" data-section="proactive-insights">
                     <div class="et-accordion-header">
-                        <span><i class="fa-solid fa-clock"></i> Proactive Messaging Insights</span>
+                        <span><i class="fa-solid fa-clock"></i> Proactive Messages</span>
                         <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
                     </div>
                     <div class="et-accordion-content">
+                        <div class="et-hint" style="margin-bottom:16px;">Allow the character to send unprompted messages
+                            based on triggers like time of day, conversation gaps, and emotional context. Messages
+                            appear in the EchoText panel when triggered.</div>
+
                         <div class="et-field">
-                            <label class="et-field-label" for="et_proactive_rate_limit_panel">
-                                <i class="fa-solid fa-gauge-high"></i> Proactive Rate Limit (minutes)
+                            <label class="et-field-label"><i class="fa-solid fa-gauge-high"></i> Message Activity</label>
+                            <div class="et-activity-mode-grid" id="et_activity_mode_grid_panel" style="display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:6px;">
+                                <button class="et-activity-btn" data-mode="quiet" type="button" title="~1–2 messages per day. Minimal API use, great for token budgets.">
+                                    <i class="fa-solid fa-moon"></i>
+                                    <span class="et-activity-label">Quiet</span>
+                                    <span class="et-activity-sub">~1–2 / day</span>
+                                </button>
+                                <button class="et-activity-btn" data-mode="relaxed" type="button" title="~3 messages per day. Gentle, unobtrusive presence.">
+                                    <i class="fa-solid fa-leaf"></i>
+                                    <span class="et-activity-label">Relaxed</span>
+                                    <span class="et-activity-sub">~3 / day</span>
+                                </button>
+                                <button class="et-activity-btn" data-mode="natural" type="button" title="Default. Dynamic, emotion-influenced frequency — roughly 4–6 per day when active.">
+                                    <i class="fa-solid fa-wave-square"></i>
+                                    <span class="et-activity-label">Natural</span>
+                                    <span class="et-activity-sub">Default</span>
+                                </button>
+                                <button class="et-activity-btn" data-mode="lively" type="button" title="More active. The character reaches out more readily when emotions are elevated.">
+                                    <i class="fa-solid fa-bolt"></i>
+                                    <span class="et-activity-label">Lively</span>
+                                    <span class="et-activity-sub">~6–8 / day</span>
+                                </button>
+                                <button class="et-activity-btn" data-mode="expressive" type="button" title="Most frequent. Minimal floor — the trigger system drives everything. Best with a powerful model.">
+                                    <i class="fa-solid fa-fire"></i>
+                                    <span class="et-activity-label">Expressive</span>
+                                    <span class="et-activity-sub">Unrestricted</span>
+                                </button>
+                                <button class="et-activity-btn" data-mode="custom" type="button" title="Set your own minimum gap between messages.">
+                                    <i class="fa-solid fa-sliders"></i>
+                                    <span class="et-activity-label">Custom</span>
+                                    <span class="et-activity-sub">Manual</span>
+                                </button>
+                            </div>
+                            <div class="et-activity-custom-row" id="et_activity_custom_row_panel" style="display:none; margin-top:10px;">
+                                <div class="et-slider-row">
+                                    <input type="range" id="et_proactive_rate_limit_panel" class="slider et-slider" min="15" max="720" step="15" value="180">
+                                    <span id="et_proactive_rate_limit_val_panel" class="et-slider-val">180 min</span>
+                                </div>
+                            </div>
+                            <div class="et-hint" id="et_activity_mode_hint_panel" style="margin-top:8px;">Natural frequency with emotion-driven variation.</div>
+                        </div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_proactive_emotion_urgency_panel">
+                                <input type="checkbox" id="et_proactive_emotion_urgency_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-heart-pulse"></i> Emotion-Driven Urgency</span>
                             </label>
-                            <input id="et_proactive_rate_limit_panel" type="number" class="et-input-text" min="15"
-                                max="2880" step="15" value="180">
-                            <div class="et-hint">Minimum time between proactive generations from the character.</div>
+                            <div class="et-hint">Strong anticipation or sadness can shorten the wait between messages. Anger and disgust extend it (or trigger a ghost window).</div>
                         </div>
 
                         <div class="et-field">
@@ -307,153 +501,401 @@
                     </div>
                 </div>
 
-                <!-- Appearance Section -->
-                <div class="et-accordion-section" data-section="appearance">
+                <!-- Memory System Section -->
+                <div class="et-accordion-section" data-section="memory">
                     <div class="et-accordion-header">
-                        <span><i class="fa-solid fa-palette"></i> Appearance</span>
+                        <span><i class="fa-solid fa-brain"></i> Memory System</span>
                         <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
                     </div>
                     <div class="et-accordion-content">
-                        <div class="et-field">
-                            <label class="et-field-label"><i class="fa-solid fa-swatchbook"></i> Theme</label>
-                            <div id="et_theme_panel_container">
-                                <!-- Theme dropdown will be populated by JavaScript -->
-                            </div>
+
+                        <div class="et-hint" style="margin-bottom:14px;">
+                            Characters can recall shared memories — inside jokes, people you've mentioned, hobbies, favorites, and more. Memories are woven naturally into replies.
                         </div>
 
                         <div class="et-field">
-                            <label class="et-field-label" for="et_font_size_panel">
-                                <i class="fa-solid fa-font"></i> Font Size
+                            <label class="et-toggle-row" for="et_memory_enabled_panel">
+                                <input type="checkbox" id="et_memory_enabled_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-brain"></i> Enable Memory System</span>
                             </label>
-                            <div class="et-slider-row">
-                                <input type="range" id="et_font_size_panel" class="slider et-slider" min="10" max="24"
-                                    step="1" value="15">
-                                <span id="et_font_size_val_panel" class="et-slider-val">15px</span>
-                            </div>
+                            <div class="et-hint">Inject relevant shared memories into the system prompt during generation.</div>
                         </div>
 
                         <div class="et-field">
-                            <label class="et-field-label"><i class="fa-solid fa-text-height"></i> Font Family</label>
-                            <div id="et_font_family_panel_container">
-                                <!-- Font dropdown will be populated by JavaScript -->
-                            </div>
-                        </div>
-
-                        <div class="et-field">
-                            <label class="et-field-label" for="et_glass_blur_panel">
-                                <i class="fa-solid fa-droplet"></i> Glassmorphism Blur
+                            <label class="et-toggle-row" for="et_memory_auto_extract_panel">
+                                <input type="checkbox" id="et_memory_auto_extract_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-highlighter"></i> Auto-Highlight Memories</span>
                             </label>
-                            <div class="et-slider-row">
-                                <input type="range" id="et_glass_blur_panel" class="slider et-slider" min="0" max="40"
-                                    step="2" value="20">
-                                <span id="et_glass_blur_val_panel" class="et-slider-val">20px</span>
+                            <div class="et-hint">Scan your messages for memorable content — hobbies, people, favorites, shared moments — and highlight it. Click any highlight to save it as a memory.</div>
+                            <div class="et-mem-hl-picker-wrap" id="et_memory_hl_picker_panel_wrap">
+                                <div class="et-label-text-sub"><i class="fa-solid fa-palette"></i> Highlight Style</div>
+                                <div class="et-mem-hl-style-btns" id="et_memory_hl_picker_panel">
+                                    <button class="et-mem-hl-btn" data-hl="underline" type="button"><span class="et-mem-hl-preview et-mem-hl-underline">Aa</span><span>Dotted Underline</span></button>
+                                    <button class="et-mem-hl-btn" data-hl="glow" type="button"><span class="et-mem-hl-preview et-mem-hl-glow">Aa</span><span>Soft Glow</span></button>
+                                    <button class="et-mem-hl-btn" data-hl="shimmer" type="button"><span class="et-mem-hl-preview et-mem-hl-shimmer">Aa</span><span>Shimmer</span></button>
+                                    <button class="et-mem-hl-btn" data-hl="border" type="button"><span class="et-mem-hl-preview et-mem-hl-border">Aa</span><span>Accent Bar</span></button>
+                                </div>
                             </div>
                         </div>
 
                         <div class="et-field">
-                            <label class="et-field-label" for="et_glass_opacity_panel">
-                                <i class="fa-solid fa-eye"></i> Panel Opacity
-                            </label>
-                            <div class="et-slider-row">
-                                <input type="range" id="et_glass_opacity_panel" class="slider et-slider" min="20"
-                                    max="100" step="5" value="85">
-                                <span id="et_glass_opacity_val_panel" class="et-slider-val">85%</span>
+                            <label class="et-field-label"><i class="fa-solid fa-folder-open"></i> Memory Scope</label>
+                            <div class="et-mem-scope-pills" id="et_memory_scope_pills_panel">
+                                <button class="et-mem-scope-btn" data-scope="per-character" type="button">
+                                    <i class="fa-solid fa-user"></i> Per Character
+                                </button>
+                                <button class="et-mem-scope-btn" data-scope="global" type="button">
+                                    <i class="fa-solid fa-globe"></i> Global
+                                </button>
                             </div>
+                            <div class="et-hint" id="et_memory_scope_hint_panel">Each character keeps their own separate memory pool.</div>
                         </div>
 
                         <div class="et-field">
-                            <label class="et-field-label" for="et_line_spacing_panel">
-                                <i class="fa-solid fa-text-height"></i> Line Spacing
-                            </label>
-                            <div class="et-slider-row">
-                                <input type="range" id="et_line_spacing_panel" class="slider et-slider" min="1.0"
-                                    max="2.0" step="0.05" value="1.3">
-                                <span id="et_line_spacing_val_panel" class="et-slider-val">1.30</span>
+                            <div class="et-mem-list-header">
+                                <span class="et-mem-list-title" id="et_memory_list_label_panel">Memories</span>
+                                <button class="et-mem-add-btn" id="et_memory_add_btn_panel" type="button" title="Add a new memory">
+                                    <i class="fa-solid fa-plus"></i> Add Memory
+                                </button>
+                            </div>
+
+                            <!-- Inline add form (hidden by default) -->
+                            <div class="et-mem-add-form" id="et_memory_add_form_panel" style="display:none;">
+                                <div class="et-mem-form-row">
+                                    <select class="et-select et-mem-form-category" id="et_memory_form_category_panel">
+                                        <option value="inside_joke">Inside Joke</option>
+                                        <option value="person">Important Person</option>
+                                        <option value="hobby">Hobby / Interest</option>
+                                        <option value="favorite_thing">Favorite Thing</option>
+                                        <option value="shared_moment">Shared Moment</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                    <input type="text" class="et-input-text et-mem-form-label" id="et_memory_form_label_panel" placeholder="Label (e.g. &ldquo;Our song&rdquo;)">
+                                </div>
+                                <textarea class="et-mem-form-content" id="et_memory_form_content_panel" rows="3" placeholder="Describe the memory…"></textarea>
+                                <div class="et-mem-form-actions">
+                                    <label class="et-mem-form-pin-row">
+                                        <input type="checkbox" id="et_memory_form_pin_panel" class="checkbox">
+                                        <span><i class="fa-solid fa-thumbtack"></i> Always inject</span>
+                                    </label>
+                                    <button class="et-mem-form-save" id="et_memory_form_save_panel" type="button">Save</button>
+                                    <button class="et-mem-form-cancel" id="et_memory_form_cancel_panel" type="button">Cancel</button>
+                                </div>
+                            </div>
+
+                            <!-- Memory cards list -->
+                            <div class="et-mem-list" id="et_memory_list_panel">
+                                <!-- Populated by JS -->
+                            </div>
+                            <div class="et-mem-empty" id="et_memory_empty_panel" style="display:none;">
+                                <i class="fa-solid fa-box-open"></i><br>No memories yet.<br>Start chatting or add one manually.
                             </div>
                         </div>
 
-                        <div class="et-field">
-                            <label class="et-field-label" for="et_paragraph_spacing_panel">
-                                <i class="fa-solid fa-grip-lines"></i> Message Spacing
-                            </label>
-                            <div class="et-slider-row">
-                                <input type="range" id="et_paragraph_spacing_panel" class="slider et-slider" min="2"
-                                    max="24" step="2" value="12">
-                                <span id="et_paragraph_spacing_val_panel" class="et-slider-val">12px</span>
-                            </div>
+                        <div class="et-field" style="margin-top:4px;">
+                            <button class="et-mem-clear-btn" id="et_memory_clear_panel" type="button">
+                                <i class="fa-solid fa-trash-can"></i> Clear All Memories
+                            </button>
                         </div>
 
-                        <div class="et-field">
-                            <label class="et-toggle-row" for="et_dynamic_emotion_panel_panel">
-                                <input type="checkbox" id="et_dynamic_emotion_panel_panel" class="checkbox">
-                                <span class="et-label-text"><i class="fa-solid fa-wand-sparkles"></i> Dynamic Emotion
-                                    Panel</span>
-                            </label>
-                            <div class="et-hint et-hint-indent">Subtle glassmorphism glow tint that reflects the
-                                character's current dominant emotion. Does not override your chosen theme.</div>
-                        </div>
                     </div>
                 </div>
 
-                <!-- Action Button Section -->
-                <div class="et-accordion-section" data-section="fab">
+                <!-- Image Generation Section -->
+                <div class="et-accordion-section" data-section="image-generation">
                     <div class="et-accordion-header">
-                        <span><i class="fa-solid fa-circle-dot"></i> Action Button</span>
+                        <span><i class="fa-solid fa-image"></i> Image Generation</span>
                         <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
                     </div>
                     <div class="et-accordion-content">
+                        <div class="et-hint" style="margin-bottom:16px;">Use SillyTavern's Image Generation plugin so
+                            characters can respond to natural image requests with generated pictures inside EchoText.</div>
+
                         <div class="et-field">
-                            <label class="et-field-label" for="et_fab_size_panel">
-                                <i class="fa-solid fa-expand"></i> Button Size
+                            <label class="et-toggle-row" for="et_image_generation_enabled_panel">
+                                <input type="checkbox" id="et_image_generation_enabled_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-wand-magic-sparkles"></i> Enable Image
+                                    Generation</span>
                             </label>
-                            <div class="et-slider-row">
-                                <input type="range" id="et_fab_size_panel" class="slider et-slider" min="22" max="76"
-                                    step="2" value="56">
-                                <span id="et_fab_size_val_panel" class="et-slider-val">56px</span>
-                            </div>
+                            <div class="et-hint">Lets characters respond to natural image requests with generated
+                                pictures. Requires SillyTavern's Image Generation extension.</div>
+                        </div>
+
+                        <div id="et_image_generation_plugin_notice_panel" class="et-imagegen-setup-notice"
+                            style="display:none;">
+                            <div class="et-imagegen-setup-title"><i class="fa-solid fa-circle-exclamation"></i>
+                                One-time plugin setup required</div>
+                            <ol class="et-imagegen-setup-steps">
+                                <li>Enable the <strong>Image Generation</strong> extension in
+                                    SillyTavern</li>
+                                <li>Configure it with a working image source <span
+                                        class="et-imagegen-setup-note">(ComfyUI, Gemini, etc.)</span></li> 
+                            </ol>
                         </div>
 
                         <div class="et-field">
-                            <label class="et-field-label">
-                                <i class="fa-solid fa-icons"></i> Button Icon
+                            <label class="et-toggle-row" for="et_image_generation_include_text_reply_panel">
+                                <input type="checkbox" id="et_image_generation_include_text_reply_panel"
+                                    class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-comment"></i> Include Text
+                                    Alongside Image</span>
                             </label>
-                            <div class="et-custom-dropdown et-dd-up" id="et_fab_icon_panel"
-                                data-value="fa-comment-dots">
-                                <div class="et-dd-trigger">
-                                    <div class="et-dd-display">
-                                        <i class="fa-solid fa-comment-dots"></i> <span>Comment Dots</span>
+                            <div class="et-hint">If enabled, the character sends a short in-character text with the
+                                generated image.</div>
+                        </div>
+
+                        <!-- IMAGE TRIGGER REFERENCE ACCORDION -->
+                        <details class="et-trigger-details et-imagetrig-details" id="et_image_trigger_reference_panel">
+                            <summary>
+                                <i class="fa-solid fa-circle-info"></i>
+                                <span>What triggers image generation?</span>
+                                <i class="fa-solid fa-chevron-down et-trigger-summary-chevron"></i>
+                            </summary>
+                            <div class="et-imagetrig-body">
+
+                                <p class="et-imagetrig-intro">
+                                    EchoText listens for natural-language phrases in your messages.
+                                    Any message that matches one of the patterns below (or an
+                                    affirmative reply after the character offered a photo) will
+                                    trigger image generation. When your request contains a contextual
+                                    reference &mdash; like <em>&ldquo;that&rdquo;</em> or
+                                    <em>&ldquo;what you&rsquo;re wearing&rdquo;</em> &mdash; EchoText
+                                    automatically looks back through the recent conversation to
+                                    resolve what you meant before building the image prompt.
+                                </p>
+
+                                <div class="et-imagetrig-group">
+                                    <div class="et-imagetrig-group-label">
+                                        <i class="fa-solid fa-camera"></i> Selfie &amp; Photo Requests
                                     </div>
-                                    <i class="fa-solid fa-chevron-down et-dd-arrow"></i>
+                                    <div class="et-imagetrig-pills">
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Send me a selfie" title="Click to copy">Send me a selfie</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Send me a photo" title="Click to copy">Send me a photo /
+                                            pic</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me a photo of you" title="Click to copy">Show me a photo of
+                                            you</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Can you send me a pic?" title="Click to copy">Can you send me a
+                                            pic?</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Could you send a picture?" title="Click to copy">Could you send a
+                                            picture?</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Take a selfie for me" title="Click to copy">Take a selfie for
+                                            me</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Snap a photo" title="Click to copy">Snap a photo</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Got any photos?" title="Click to copy">Got any photos?</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Any pics of you?" title="Click to copy">Any pics of you?</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Photo of you" title="Click to copy">Photo / pic / shot of
+                                            you</span>
+                                    </div>
                                 </div>
-                                <div class="et-dd-menu">
-                                    <div class="et-dd-option et-dd-selected" data-value="fa-comment-dots"><i
-                                            class="fa-solid fa-comment-dots"></i> Comment Dots</div>
-                                    <div class="et-dd-option" data-value="fa-message"><i
-                                            class="fa-solid fa-message"></i> Message</div>
-                                    <div class="et-dd-option" data-value="fa-comments"><i
-                                            class="fa-solid fa-comments"></i> Comments</div>
-                                    <div class="et-dd-option" data-value="fa-mobile-screen"><i
-                                            class="fa-solid fa-mobile-screen"></i> Mobile</div>
-                                    <div class="et-dd-option" data-value="fa-robot"><i class="fa-solid fa-robot"></i>
-                                        Robot</div>
-                                    <div class="et-dd-option" data-value="fa-heart"><i class="fa-solid fa-heart"></i>
-                                        Heart</div>
-                                    <div class="et-dd-option" data-value="fa-star"><i class="fa-solid fa-star"></i> Star
+
+                                <div class="et-imagetrig-group">
+                                    <div class="et-imagetrig-group-label">
+                                        <i class="fa-solid fa-eye"></i> Appearance &amp; Look
                                     </div>
-                                    <div class="et-dd-option" data-value="fa-bolt"><i class="fa-solid fa-bolt"></i> Bolt
+                                    <div class="et-imagetrig-pills">
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="What do you look like?" title="Click to copy">What do you look
+                                            like?</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me what you look like" title="Click to copy">Show me what
+                                            you look like</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me how you look" title="Click to copy">Show me how you
+                                            look</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me you wearing " title="Click to copy">Show me you
+                                            wearing&hellip;</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me your outfit" title="Click to copy">Show me your
+                                            outfit</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="I want to see you" title="Click to copy">I want to see
+                                            you</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="I want to see what you're wearing" title="Click to copy">I want
+                                            to see what you&rsquo;re wearing</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="I want a photo of you" title="Click to copy">I want a photo of
+                                            you</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="I'd love to see you" title="Click to copy">I&rsquo;d love to see
+                                            you</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="I'd love to see a pic" title="Click to copy">I&rsquo;d love to
+                                            see a pic</span>
                                     </div>
-                                    <div class="et-dd-option" data-value="fa-fire"><i class="fa-solid fa-fire"></i> Fire
-                                    </div>
-                                    <div class="et-dd-option" data-value="fa-wand-magic-sparkles"><i
-                                            class="fa-solid fa-wand-magic-sparkles"></i> Magic</div>
                                 </div>
+
+                                <div class="et-imagetrig-group">
+                                    <div class="et-imagetrig-group-label">
+                                        <i class="fa-solid fa-arrows-spin"></i> Context References <span class="et-imagetrig-group-note">(AI resolves from conversation)</span>
+                                    </div>
+                                    <div class="et-imagetrig-pills">
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me a photo of that" title="Click to copy">Show me a photo
+                                            of that</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Send me a pic of that" title="Click to copy">Send me a pic of
+                                            that</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me what you're wearing" title="Click to copy">Show me what
+                                            you&rsquo;re wearing</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me your outfit today" title="Click to copy">Show me your
+                                            outfit today</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me that look" title="Click to copy">Show me that
+                                            look</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Send me a photo of how you look right now" title="Click to copy">Send me a photo
+                                            of how you look right now</span>
+                                    </div>
+                                </div>
+
+                                <div class="et-imagetrig-group">
+                                    <div class="et-imagetrig-group-label">
+                                        <i class="fa-solid fa-pen-nib"></i> Drawing &amp; Art
+                                    </div>
+                                    <div class="et-imagetrig-pills">
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Draw me a picture of " title="Click to copy">Draw me a picture
+                                            of&hellip;</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable" data-copy="Draw me"
+                                            title="Click to copy">Draw me</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Sketch me a portrait" title="Click to copy">Sketch me a
+                                            portrait</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Paint a picture of " title="Click to copy">Paint a picture
+                                            of&hellip;</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Illustrate yourself" title="Click to copy">Illustrate
+                                            yourself</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Draw a comic of " title="Click to copy">Draw a comic
+                                            of&hellip;</span>
+                                    </div>
+                                </div>
+
+                                <div class="et-imagetrig-group">
+                                    <div class="et-imagetrig-group-label">
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Make / Create / Generate
+                                    </div>
+                                    <div class="et-imagetrig-pills">
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Make me a photo of " title="Click to copy">Make me a photo
+                                            of&hellip;</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Create a drawing of " title="Click to copy">Create a drawing
+                                            of&hellip;</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Generate a selfie" title="Click to copy">Generate a
+                                            selfie</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Make me a portrait" title="Click to copy">Make me a
+                                            portrait</span>
+                                    </div>
+                                </div>
+
+                                <div class="et-imagetrig-group">
+                                    <div class="et-imagetrig-group-label">
+                                        <i class="fa-solid fa-paintbrush"></i> Artwork, Anime &amp; CGs
+                                    </div>
+                                    <div class="et-imagetrig-pills">
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Send me a cg" title="Click to copy">Send me a CG</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me a render" title="Click to copy">Show me a render</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Show me some hentai" title="Click to copy">Show me some hentai</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Got any artwork?" title="Click to copy">Got any artwork?</span>
+                                        <span class="et-imagetrig-pill et-imagetrig-pill-copyable"
+                                            data-copy="Generate an illustration" title="Click to copy">Generate an illustration</span>
+                                    </div>
+                                </div>
+
+                                <div class="et-imagetrig-group">
+                                    <div class="et-imagetrig-group-label">
+                                        <i class="fa-solid fa-reply"></i> Affirmative Reply <span
+                                            class="et-imagetrig-group-note">(after character offers a photo)</span>
+                                    </div>
+                                    <div class="et-imagetrig-pills">
+                                        <span class="et-imagetrig-pill">Yes / Yeah / Yep / Sure</span>
+                                        <span class="et-imagetrig-pill">Definitely / Absolutely</span>
+                                        <span class="et-imagetrig-pill">Please do / Go ahead</span>
+                                        <span class="et-imagetrig-pill">Of course / Alright</span>
+                                        <span class="et-imagetrig-pill">I&rsquo;d love to / Send it</span>
+                                        <span class="et-imagetrig-pill">Show me / Let me see</span>
+                                    </div>
+                                </div>
+
+                                <p class="et-imagetrig-tip">
+                                    <i class="fa-solid fa-lightbulb"></i>
+                                    <strong>Tip:</strong> You can be explicit &mdash;
+                                    <em>&ldquo;Send me a selfie in a red dress at the beach&rdquo;</em> &mdash;
+                                    or just reference the conversation &mdash;
+                                    <em>&ldquo;Show me a photo of that&rdquo;</em> or
+                                    <em>&ldquo;Show me what you&rsquo;re wearing&rdquo;</em>.
+                                    EchoText uses the AI to resolve contextual references automatically.
+                                </p>
+
+                                <p class="et-imagetrig-tip" style="margin-top: 10px;">
+                                    <i class="fa-solid fa-brain"></i>
+                                    <strong>Context Resolution:</strong> When your message contains a vague
+                                    reference (&ldquo;that&rdquo;, &ldquo;what you&rsquo;re wearing&rdquo;,
+                                    &ldquo;your outfit&rdquo;), EchoText makes a quick AI call to look back
+                                    through the last few messages and extract the concrete visual description
+                                    before sending it to Stable Diffusion. Simple explicit requests skip this
+                                    step entirely for instant generation.
+                                </p>
+
+                                <p class="et-imagetrig-tip" style="margin-top: 10px;">
+                                    <i class="fa-solid fa-fire"></i>
+                                    <strong>Style Modifiers:</strong> Words like <em>hentai, nsfw, ecchi, lewd,</em> or <em>manga</em> will automatically force explicit or anime style tags into the underlying Stable Diffusion prompt.
+                                </p>
+
                             </div>
+                        </details>
+                    </div>
+                </div>
+
+                <!-- Prompt Manager Section -->
+                <div class="et-accordion-section" data-section="prompts">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-scroll"></i> Prompt Manager</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-hint" style="margin-bottom:18px;">Edit the prompts sent to the AI. Changes
+                            auto-save as you type. Use <code>{{char}}</code> and <code>{{user}}</code> as placeholders.
+                            Click <b>Reset</b> to restore the factory default.</div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_anti_refusal_panel">
+                                <input type="checkbox" id="et_anti_refusal_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-shield-halved"></i> Anti-Refusal
+                                    Framing</span>
+                            </label>
+                            <div class="et-hint">Prepend a roleplay fiction frame and persona-lock reminder to the
+                                system prompt, and insert an in-character pre-fill for chat-completion backends (Profile
+                                / Ollama / OpenAI) to prevent out-of-character refusals.</div>
+                        </div>
+
+                        <div id="et_prompt_manager_panel_container">
+                            <!-- Prompt manager cards are populated by JavaScript -->
                         </div>
                     </div>
                 </div>
 
             </div>
-
-        </div>
-    </div>
-</div>

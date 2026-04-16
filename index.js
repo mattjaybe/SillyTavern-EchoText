@@ -7,12 +7,23 @@
     const MODULE_NAME = 'EchoText';
     const EXTENSION_NAME = 'EchoText';
 
-    // Get BASE_URL from script tag
+    // Get BASE_URL and cache-buster from script tag
     const scripts = document.querySelectorAll('script[src*="index.js"]');
     let BASE_URL = '';
+    let VERSION_QUERY = '';
     for (const script of scripts) {
         if (script.src.includes('EchoText')) {
-            BASE_URL = script.src.split('/').slice(0, -1).join('/');
+            // Use URL API for resilient parsing
+            try {
+                const urlObj = new URL(script.src, window.location.href);
+                VERSION_QUERY = urlObj.search; // Contains "?test5" etc
+                BASE_URL = urlObj.origin + urlObj.pathname.split('/').slice(0, -1).join('/');
+            } catch (e) {
+                // Fallback for unexpected URL formats
+                BASE_URL = script.src.split('?')[0].split('/').slice(0, -1).join('/');
+                const parts = script.src.split('?');
+                if (parts.length > 1) VERSION_QUERY = '?' + parts[1];
+            }
             break;
         }
     }
@@ -20,12 +31,17 @@
         BASE_URL = '/scripts/extensions/third-party/SillyTavern-EchoText';
     }
 
+    console.log(`[EchoText] Initializing from ${BASE_URL} with query ${VERSION_QUERY}`);
+
     function loadEchoTextModule(relativePath, globalKey) {
         if (window[globalKey]) return;
         const xhr = new XMLHttpRequest();
-        xhr.open('GET', `${BASE_URL}/${relativePath}`, false);
+        // Propagate the cache-buster to all sub-modules
+        const moduleUrl = `${BASE_URL}/${relativePath}${VERSION_QUERY}`;
+        xhr.open('GET', moduleUrl, false);
         xhr.send();
         if (xhr.status < 200 || xhr.status >= 300) {
+            console.error(`[EchoText] Failed to load module ${relativePath}: HTTP ${xhr.status}`);
             throw new Error(`Failed to load module ${relativePath}: HTTP ${xhr.status}`);
         }
         // eslint-disable-next-line no-new-func
@@ -43,6 +59,10 @@
     loadEchoTextModule('lib/memory-system.js', 'EchoTextMemorySystem');
     loadEchoTextModule('lib/saveload-modal.js', 'EchoTextSaveLoadModal');
     loadEchoTextModule('lib/group.js', 'EchoTextGroupManager');
+    loadEchoTextModule('lib/image-generation.js', 'EchoTextImageGeneration');
+    loadEchoTextModule('lib/gallery.js', 'EchoTextGallery');
+    loadEchoTextModule('lib/character-picker.js', 'EchoTextCharacterPicker');
+    loadEchoTextModule('lib/st-context-emotion.js', 'EchoTextSTContextEmotion');
 
     // ============================================================
     // THEME PRESETS
@@ -71,15 +91,216 @@
     let memorySystem = null;
     let saveLoadModal = null;
     let groupManager = null;
+    let imageGeneration = null;
+    let gallery = null;
+    let characterPicker = null;
+    let stContextEmotion = null;
     let FA_REACTIONS = [];
+    let selectedCharacterKey = null;
+
+    // Named event handler references for cleanup
+    let _onChatChanged = null;
+    let _onGroupUpdated = null;
+
+    // ============================================================
+    // MOBILE / iOS DETECTION & VIEWPORT HELPERS
+    // ============================================================
+
+    function isMobileDevice() {
+        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+            || ('ontouchstart' in window && window.innerWidth < 1024);
+    }
+
+    function isIOS() {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+    // Use visualViewport when available — reports the region actually visible
+    // to the user on iOS (excludes address bar, keyboard, etc.).
+    function getViewportHeight() {
+        return window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    }
+
+    function getViewportWidth() {
+        return window.visualViewport ? window.visualViewport.width : window.innerWidth;
+    }
+
+    // ============================================================
+    // iOS PORTAL — escape SillyTavern's body { position: fixed }
+    // ============================================================
+    // SillyTavern's mobile-styles.css applies:
+    //   body { position: fixed; overflow: hidden; }
+    // which breaks position:fixed children appended directly to body.
+    //
+    // Fix: mount a <div id="et-portal"> as a direct sibling of <body>
+    // (child of <html>) to escape SillyTavern's clipped/fixed body.
+    // We use a high z-index and dynamic viewport units for total coverage.
+    const ET_PORTAL_ID = 'et-portal';
+
+    function ensurePortal() {
+        let portal = document.getElementById(ET_PORTAL_ID);
+        if (!portal) {
+            portal = document.createElement('div');
+            portal.id = ET_PORTAL_ID;
+            // Max z-index, fixed fullscreen, tracking dynamic viewport (dvh/dvw)
+            // We use color:initial and text-align:initial to ensureST defaults don't bleed in.
+            portal.style.cssText = `position:fixed; top:0; left:0; width:100dvw; height:100dvh; z-index:${isMobileDevice() ? '2147483647' : '1500'}; pointer-events:none; display:block !important; border:none !important; margin:0 !important; padding:0 !important;`;
+            
+            // Try appending to html first to escape body bugs
+            try {
+                document.documentElement.appendChild(portal);
+            } catch (e) {
+                console.warn('[EchoText] Failed to append to <html>, falling back to <body>', e);
+                document.body.appendChild(portal);
+            }
+        }
+        return portal;
+    }
+
+    function portalAppend(html) {
+        const portal = ensurePortal();
+        // Re-enable pointer events on children (portal itself has none).
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'pointer-events:auto;';
+        wrapper.innerHTML = html;
+        while (wrapper.firstChild) portal.appendChild(wrapper.firstChild);
+    }
+
+    function removePortal() {
+        const portal = document.getElementById(ET_PORTAL_ID);
+        if (portal) portal.remove();
+    }
+
+    /**
+     * On mobile the portal lives on <html> with z-index MAX, so anything left
+     * in <body> (where external modal modules append their DOM) renders beneath
+     * the panel.  Call this immediately after triggering any modal open; it
+     * relocates the modal root element into the portal so it shares the same
+     * stacking context and appears above the panel.
+     *
+     * Safe to call on desktop too — it's a no-op when !isMobileDevice().
+     *
+     * @param {string} selector  CSS selector for the modal's root element
+     */
+    function moveModalToPortal(selector) {
+        if (!isMobileDevice()) return;
+        const portal = ensurePortal();
+        const tryMove = () => {
+            const el = document.querySelector(selector);
+            if (el && el.parentElement !== portal) {
+                portal.appendChild(el);
+                return true;
+            }
+            return !!el;
+        };
+        // Try synchronously first (modal may already be in DOM),
+        // then retry at 50 ms, 150 ms, and 400 ms to cover modules that do
+        // async DB reads or multi-step renders before appending their element.
+        if (!tryMove()) {
+            setTimeout(() => {
+                if (!tryMove()) {
+                    setTimeout(() => {
+                        if (!tryMove()) setTimeout(tryMove, 250);
+                    }, 100);
+                }
+            }, 50);
+        }
+    }
 
     // ============================================================
     // LOGGING
     // ============================================================
 
     function log(...args) { console.log(`[${EXTENSION_NAME}]`, ...args); }
-    function warn(...args) { /* console.warn(`[${EXTENSION_NAME}]`, ...args); */ }
+    function warn(...args) { console.warn(`[${EXTENSION_NAME}]`, ...args); }
     function error(...args) { console.error(`[${EXTENSION_NAME}]`, ...args); }
+
+    function getImageMimeTypeFromDataUrl(dataUrl) {
+        const match = String(dataUrl || '').match(/^data:([^;]+);base64,/i);
+        return match?.[1] || 'image/png';
+    }
+
+    function extractImageUrlFromPluginResult(result) {
+        if (!result) return null;
+        if (typeof result === 'string') return result;
+        if (Array.isArray(result)) {
+            for (const item of result) {
+                const nested = extractImageUrlFromPluginResult(item);
+                if (nested) return nested;
+            }
+        }
+        if (typeof result === 'object') {
+            if (typeof result.pipe === 'string' && result.pipe.trim()) return result.pipe.trim();
+            if (typeof result.value === 'string' && result.value.trim()) return result.value.trim();
+        }
+        return result.url || result.image || result.path || result.src || result.data || result.base64 || null;
+    }
+
+    async function requestSillyTavernImageGeneration(payload) {
+        // Use sdPrompt (SD-optimized, includes character appearance) for the /sd command.
+        // contextPrompt is reserved for multimodal generators that handle verbose prose.
+        const sdPrompt = payload.sdPrompt || payload.prompt || '';
+        const response = await executeImageGenerationSlashCommand(buildImageGenerationSlashCommand(payload));
+
+        let url = extractImageUrlFromPluginResult(response);
+        if (typeof url === 'string') {
+            const mdMatch = url.match(/\!\[[^\]]*\]\(([^)]+)\)/);
+            if (mdMatch?.[1]) url = mdMatch[1];
+        }
+        if (!url) {
+            throw new Error('The SillyTavern Image Generation plugin did not return an image URL or data payload.');
+        }
+
+        return {
+            ok: true,
+            url,
+            mimeType: String(url).startsWith('data:') ? getImageMimeTypeFromDataUrl(url) : 'image/png',
+            prompt: sdPrompt,
+            provider: 'st_image_plugin'
+        };
+    }
+
+    function buildImageGenerationSlashCommand(payload) {
+        // Always use sdPrompt — the SD-optimized prompt that includes character appearance,
+        // visual descriptors, and scene context. Never use raw userDirectives here, as
+        // those may be unstripped trigger phrases with no appearance information.
+        const subject = String(payload.sdPrompt || payload.prompt || 'a candid photo')
+            .replace(/\r?\n+/g, ' ')
+            .replace(/"/g, '\\"')
+            .trim();
+        return `/sd quiet=true ${subject}`;
+    }
+
+    async function executeImageGenerationSlashCommand(command) {
+        const context = SillyTavern.getContext?.() || {};
+        const executor = context.executeSlashCommandsWithOptions
+            || context.executeSlashCommands
+            || window.executeSlashCommandsWithOptions
+            || window.executeSlashCommands;
+
+        if (typeof executor !== 'function') {
+            throw new Error('SillyTavern slash-command execution API was not available for image generation.');
+        }
+
+        // ST's image generation plugin shows a persistent "Generating an image..." toast.
+        // EchoText already has its own camera indicator, so dismiss that toast after a
+        // brief moment so it doesn't linger for the full generation duration.
+        setTimeout(() => {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            container.querySelectorAll('.toast-info').forEach(toast => {
+                const title = toast.querySelector('.toast-title');
+                if (title && title.textContent.includes('Image Generation')) {
+                    jQuery(toast).fadeOut(400, () => jQuery(toast).remove());
+                }
+            });
+        }, 1500);
+
+        const result = await executor(command, { quiet: true, source: 'echotext' });
+        if (typeof result === 'string') return result.trim();
+        return result;
+    }
 
     function getIsGenerating() {
         return isGenerating;
@@ -130,6 +351,64 @@
         SillyTavern.getContext().saveSettingsDebounced();
     }
 
+    // ============================================================
+    // ACTIVITY MODE HELPER
+    // ============================================================
+
+    /**
+     * Named activity mode presets.
+     * Each maps to a floor in minutes and a human description.
+     *  'expressive' uses 30 min so the trigger/jitter system is the real governor.
+     */
+    const ACTIVITY_MODE_PRESETS = {
+        quiet:      { minutes: 480, hint: 'Quiet: ~1–2 messages per day. Minimal API use — ideal when watching token spend.' },
+        relaxed:    { minutes: 300, hint: 'Relaxed: ~3 messages per day. A gentle presence that doesn\'t intrude.' },
+        natural:    { minutes: 180, hint: 'Natural: Dynamic, emotion-influenced frequency. The default — feels organic without overwhelming.' },
+        lively:     { minutes:  90, hint: 'Lively: ~6–8 messages per day. The character reaches out more readily, especially when emotionally engaged.' },
+        expressive: { minutes:  30, hint: 'Expressive: Minimal floor — the trigger system drives everything. Best with a fast or local model.' },
+        custom:     { minutes: null, hint: 'Custom: Use the slider to set your own minimum gap between messages.' }
+    };
+
+    /**
+     * Applies an activity mode to a given set of DOM targets (works for both
+     * the settings modal and the panel accordion — just pass different selectors).
+     *
+     * @param {string} mode        - one of the ACTIVITY_MODE_PRESETS keys
+     * @param {string} gridSel     - selector for the button grid
+     * @param {string} customSel   - selector for the custom slider row
+     * @param {string} sliderSel   - selector for the range input
+     * @param {string} valSel      - selector for the value display span
+     * @param {string} hintSel     - selector for the hint text element
+     */
+    function applyActivityMode(mode, gridSel, customSel, sliderSel, valSel, hintSel) {
+        const preset = ACTIVITY_MODE_PRESETS[mode] || ACTIVITY_MODE_PRESETS.natural;
+
+        // Highlight the active button
+        jQuery(gridSel).find('.et-activity-btn').removeClass('et-activity-btn-active');
+        jQuery(gridSel).find(`.et-activity-btn[data-mode="${mode}"]`).addClass('et-activity-btn-active');
+
+        // Show/hide custom slider
+        if (mode === 'custom') {
+            jQuery(customSel).show();
+        } else {
+            jQuery(customSel).hide();
+            // Apply the preset floor
+            if (preset.minutes !== null) {
+                jQuery(sliderSel).val(preset.minutes);
+                jQuery(valSel).text(preset.minutes + ' min');
+                settings.proactiveRateLimitMinutes = preset.minutes;
+            }
+        }
+
+        // Update hint
+        jQuery(hintSel).text(preset.hint);
+
+        // Persist
+        settings.proactiveActivityMode = mode;
+        saveSettings();
+        if (typeof refreshProactiveInsights === 'function') refreshProactiveInsights();
+    }
+
     function loadSettings() {
         settings = getSettings();
         applySettingsToUI();
@@ -143,6 +422,7 @@
         jQuery('#et_enabled').prop('checked', settings.enabled);
         jQuery('#et_enabled_quick').prop('checked', settings.enabled);
         jQuery('#et_auto_open').prop('checked', settings.autoOpenOnReload);
+        jQuery('#et_auto_load_last_char').prop('checked', settings.autoLoadLastCharacter === true);
         jQuery('#et_source').val(settings.source);
         jQuery('#et_profile_select').val(settings.preset);
         jQuery('#et_ollama_url').val(settings.ollama_url);
@@ -150,7 +430,10 @@
         jQuery('#et_openai_url').val(settings.openai_url);
         jQuery('#et_openai_key').val(settings.openai_key);
         jQuery('#et_openai_model').val(settings.openai_model);
-        jQuery('#et_anti_refusal').prop('checked', settings.antiRefusal !== false);
+        jQuery('#et_anti_refusal').prop('checked', settings.antiRefusal === true);
+        jQuery('#et_image_generation_enabled').prop('checked', settings.imageGenerationEnabled === true);
+        jQuery('#et_image_generation_include_text_reply').prop('checked', settings.imageGenerationIncludeTextReply !== false);
+        jQuery('#et_image_generation_plugin_notice').toggle(settings.imageGenerationEnabled === true);
         jQuery('#et_font_size').val(settings.fontSize);
         jQuery('#et_font_size_val').text(settings.fontSize + 'px');
         jQuery('#et_theme').val(settings.theme);
@@ -162,12 +445,15 @@
         jQuery('#et_line_spacing_val').text((settings.lineSpacing || 1.3).toFixed(2));
         jQuery('#et_paragraph_spacing').val(settings.paragraphSpacing || 12);
         jQuery('#et_paragraph_spacing_val').text((settings.paragraphSpacing || 12) + 'px');
-        jQuery('#et_dynamic_emotion_panel').prop('checked', settings.dynamicEmotionPanel === true);
+
         jQuery('#et_show_avatar').prop('checked', settings.showAvatar !== false);
         jQuery('#et_emotion_system').prop('checked', settings.emotionSystemEnabled !== false);
         jQuery('#et_fab_size').val(settings.fabSize);
         jQuery('#et_fab_size_val').text(settings.fabSize + 'px');
+        jQuery('#et_fab_opacity').val(settings.fabOpacity || 100);
+        jQuery('#et_fab_opacity_val').text((settings.fabOpacity || 100) + '%');
         jQuery('#et_auto_scroll').prop('checked', settings.autoScroll);
+        jQuery('#et_verbosity_default').val(settings.verbosityDefault || 'medium');
         // Context settings
         jQuery('#et_ctx_description').prop('checked', settings.ctxDescription !== false);
         jQuery('#et_ctx_personality').prop('checked', settings.ctxPersonality !== false);
@@ -175,11 +461,17 @@
         jQuery('#et_ctx_persona').prop('checked', settings.ctxPersona === true);
         jQuery('#et_ctx_world_info').prop('checked', settings.ctxWorldInfo === true);
         jQuery('#et_ctx_st_messages').prop('checked', settings.ctxSTMessages === true);
-        jQuery('#et_ctx_st_token_preset').val(settings.ctxSTTokenPreset || 'medium');
-        jQuery('#et_ctx_st_token_custom').val(settings.ctxSTTokenBudget || 1200);
-        jQuery('#et_ctx_st_token_container').toggle(settings.ctxSTMessages === true);
-        jQuery('#et_ctx_st_token_custom_container').toggle((settings.ctxSTTokenPreset || 'medium') === 'custom');
+        jQuery('#et_ctx_st_context').prop('checked', settings.ctxSTContext === true);
         jQuery('#et_proactive_rate_limit').val(settings.proactiveRateLimitMinutes || 180);
+        jQuery('#et_proactive_rate_limit_val').text((settings.proactiveRateLimitMinutes || 180) + ' min');
+        // Activity mode
+        const activeMode = settings.proactiveActivityMode || 'natural';
+        jQuery('#et_activity_mode_grid').find('.et-activity-btn').removeClass('et-activity-btn-active');
+        jQuery(`#et_activity_mode_grid .et-activity-btn[data-mode="${activeMode}"]`).addClass('et-activity-btn-active');
+        jQuery('#et_activity_custom_row').toggle(activeMode === 'custom');
+        const modeHint = (ACTIVITY_MODE_PRESETS[activeMode] || ACTIVITY_MODE_PRESETS.natural).hint;
+        jQuery('#et_activity_mode_hint').text(modeHint);
+        jQuery('#et_proactive_emotion_urgency').prop('checked', settings.proactiveEmotionUrgency !== false);
         updateProactiveToggleButtons();
 
         jQuery('.et-icon-option').removeClass('selected');
@@ -200,9 +492,11 @@
         // General
         jQuery('#et_enabled_panel').prop('checked', settings.enabled);
         jQuery('#et_auto_open_panel').prop('checked', settings.autoOpenOnReload);
+        jQuery('#et_auto_load_last_char_panel').prop('checked', settings.autoLoadLastCharacter === true);
         jQuery('#et_auto_scroll_panel').prop('checked', settings.autoScroll);
         jQuery('#et_show_avatar_panel').prop('checked', settings.showAvatar !== false);
         jQuery('#et_emotion_system_panel').prop('checked', settings.emotionSystemEnabled !== false);
+        jQuery('#et_verbosity_default_panel').val(settings.verbosityDefault || 'medium');
 
         // Generation Engine
         jQuery('#et_source_panel').val(settings.source);
@@ -212,7 +506,11 @@
         jQuery('#et_openai_url_panel').val(settings.openai_url);
         jQuery('#et_openai_key_panel').val(settings.openai_key);
         jQuery('#et_openai_model_panel').val(settings.openai_model);
-        jQuery('#et_anti_refusal_panel').prop('checked', settings.antiRefusal !== false);
+        jQuery('#et_anti_refusal_panel').prop('checked', settings.antiRefusal === true);
+        jQuery('#et_image_generation_enabled_panel').prop('checked', settings.imageGenerationEnabled === true);
+        jQuery('#et_image_generation_include_text_reply_panel').prop('checked', settings.imageGenerationIncludeTextReply !== false);
+        jQuery('#et_image_generation_plugin_notice_panel').toggle(settings.imageGenerationEnabled === true);
+        updateImageGenerationVisibility();
         updateProviderVisibilityPanel();
 
         // Populate connection profiles for panel
@@ -225,11 +523,17 @@
         jQuery('#et_ctx_persona_panel').prop('checked', settings.ctxPersona === true);
         jQuery('#et_ctx_world_info_panel').prop('checked', settings.ctxWorldInfo === true);
         jQuery('#et_ctx_st_messages_panel').prop('checked', settings.ctxSTMessages === true);
-        jQuery('#et_ctx_st_token_preset_panel').val(settings.ctxSTTokenPreset || 'medium');
-        jQuery('#et_ctx_st_token_custom_panel').val(settings.ctxSTTokenBudget || 1200);
-        jQuery('#et_ctx_st_token_container_panel').toggle(settings.ctxSTMessages === true);
-        jQuery('#et_ctx_st_token_custom_container_panel').toggle((settings.ctxSTTokenPreset || 'medium') === 'custom');
+        jQuery('#et_ctx_st_context_panel').prop('checked', settings.ctxSTContext === true);
         jQuery('#et_proactive_rate_limit_panel').val(settings.proactiveRateLimitMinutes || 180);
+        jQuery('#et_proactive_rate_limit_val_panel').text((settings.proactiveRateLimitMinutes || 180) + ' min');
+        // Activity mode
+        const activeModePanel = settings.proactiveActivityMode || 'natural';
+        jQuery('#et_activity_mode_grid_panel').find('.et-activity-btn').removeClass('et-activity-btn-active');
+        jQuery(`#et_activity_mode_grid_panel .et-activity-btn[data-mode="${activeModePanel}"]`).addClass('et-activity-btn-active');
+        jQuery('#et_activity_custom_row_panel').toggle(activeModePanel === 'custom');
+        const modeHintPanel = (ACTIVITY_MODE_PRESETS[activeModePanel] || ACTIVITY_MODE_PRESETS.natural).hint;
+        jQuery('#et_activity_mode_hint_panel').text(modeHintPanel);
+        jQuery('#et_proactive_emotion_urgency_panel').prop('checked', settings.proactiveEmotionUrgency !== false);
         updateProactiveToggleButtons();
 
         // Appearance
@@ -243,7 +547,7 @@
         jQuery('#et_line_spacing_val_panel').text((settings.lineSpacing || 1.3).toFixed(2));
         jQuery('#et_paragraph_spacing_panel').val(settings.paragraphSpacing || 12);
         jQuery('#et_paragraph_spacing_val_panel').text((settings.paragraphSpacing || 12) + 'px');
-        jQuery('#et_dynamic_emotion_panel_panel').prop('checked', settings.dynamicEmotionPanel === true);
+
 
         // Populate theme dropdown
         jQuery('#et_theme_panel_container').html(buildThemeDropdownHtml(settings.theme));
@@ -255,11 +559,34 @@
         // Action Button
         jQuery('#et_fab_size_panel').val(settings.fabSize);
         jQuery('#et_fab_size_val_panel').text(settings.fabSize + 'px');
+        jQuery('#et_fab_opacity_panel').val(settings.fabOpacity || 100);
+        jQuery('#et_fab_opacity_val_panel').text((settings.fabOpacity || 100) + '%');
         initCustomDropdownPanel('et_fab_icon_panel', settings.fabIcon);
+
+        // Populate Prompt Manager in Panel if available
+        if (typeof settingsModal !== 'undefined' && settingsModal && typeof settingsModal.buildPromptManagerSectionHtml === 'function') {
+            jQuery('#et_prompt_manager_panel_container').html(settingsModal.buildPromptManagerSectionHtml());
+        }
+
+        // Populate Memory System panel card list and apply scope pill state
+        if (typeof settingsModal !== 'undefined' && settingsModal && typeof settingsModal.renderMemoryListInto === 'function') {
+            settingsModal.renderMemoryListInto('#et_memory_list_panel', '#et_memory_empty_panel', '#et_memory_list_label_panel');
+        }
+        // Memory panel toggles
+        jQuery('#et_memory_enabled_panel').prop('checked', settings.memoryEnabled !== false);
+        jQuery('#et_memory_auto_extract_panel').prop('checked', settings.memoryAutoExtract !== false);
+        // Memory scope pills
+        const _memScope = settings.memoryScope || 'per-character';
+        jQuery('#et_memory_scope_pills_panel .et-mem-scope-btn').removeClass('et-mem-scope-btn-active');
+        jQuery(`#et_memory_scope_pills_panel .et-mem-scope-btn[data-scope="${_memScope}"]`).addClass('et-mem-scope-btn-active');
+        jQuery('#et_memory_scope_hint_panel').text(
+            _memScope === 'global' ? 'One shared memory pool for all characters.' : 'Each character keeps their own separate memory pool.'
+        );
     }
 
     function updateProactiveToggleButtons() {
-        const enabled = settings.proactiveMessagingEnabled !== false;
+        // Check both proactiveMessagingEnabled and dynamicSystemsEnabled for the toggle state
+        const enabled = settings.proactiveMessagingEnabled !== false && settings.dynamicSystemsEnabled !== false;
 
         const syncButton = (selector) => {
             const btn = jQuery(selector);
@@ -295,9 +622,19 @@
         jQuery('#et_profile_settings_panel').hide();
         jQuery('#et_ollama_settings_panel').hide();
         jQuery('#et_openai_settings_panel').hide();
+        jQuery('#et_image_generation_plugin_notice_panel').toggle(settings.imageGenerationEnabled === true);
         if (source === 'profile') jQuery('#et_profile_settings_panel').show();
         if (source === 'ollama') jQuery('#et_ollama_settings_panel').show();
         if (source === 'openai') jQuery('#et_openai_settings_panel').show();
+    }
+
+    function updateImageGenerationVisibility() {
+        const imgEnabled = settings.imageGenerationEnabled === true;
+        const hasChar = !!getCurrentCharacter();
+        const inGroup = groupManager && groupManager.isGroupSession();
+        jQuery('#et_image_generation_plugin_notice').toggle(imgEnabled);
+        jQuery('#et_image_generation_plugin_notice_panel').toggle(imgEnabled);
+        jQuery('#et-overflow-gallery').toggle(imgEnabled && hasChar && !inGroup);
     }
 
     // Initialize custom dropdowns for panel
@@ -417,6 +754,14 @@
             jQuery('#et_auto_open').prop('checked', settings.autoOpenOnReload);
         });
 
+        // Auto-Load Last Character
+        jQuery('#et_auto_load_last_char_panel').off('change.panel').on('change.panel', function () {
+            settings.autoLoadLastCharacter = jQuery(this).is(':checked');
+            saveSettings();
+            // Sync with modal
+            jQuery('#et_auto_load_last_char').prop('checked', settings.autoLoadLastCharacter);
+        });
+
         // Auto-scroll
         jQuery('#et_auto_scroll_panel').off('change.panel').on('change.panel', function () {
             settings.autoScroll = jQuery(this).is(':checked');
@@ -425,15 +770,22 @@
             jQuery('#et_auto_scroll').prop('checked', settings.autoScroll);
         });
 
+        // Verbosity Default
+        jQuery('#et_verbosity_default_panel').off('change.panel').on('change.panel', function () {
+            settings.verbosityDefault = jQuery(this).val();
+            saveSettings();
+            // Sync with modal
+            jQuery('#et_verbosity_default').val(settings.verbosityDefault);
+        });
+
         // Show avatar
         jQuery('#et_show_avatar_panel').off('change.panel').on('change.panel', function () {
             settings.showAvatar = jQuery(this).is(':checked');
             saveSettings();
             // Sync with modal
             jQuery('#et_show_avatar').prop('checked', settings.showAvatar);
-            // Update avatar visibility in open panel
+            // Update messages to show/hide bubble avatars
             if (panelOpen) {
-                jQuery('#et-char-avatar').toggleClass('et-avatar-hidden', !settings.showAvatar);
                 const history = getChatHistory();
                 renderMessages(history);
             }
@@ -445,9 +797,8 @@
             saveSettings();
             // Sync with modal
             jQuery('#et_emotion_system').prop('checked', settings.emotionSystemEnabled);
-            // Update indicator visibility
             jQuery('#et-emotion-indicator').toggleClass('et-emotion-indicator-hidden', !settings.emotionSystemEnabled);
-            jQuery('#et-char-name').toggleClass('et-char-name-clickable', settings.emotionSystemEnabled);
+            updatePanelStatusRow();
         });
 
         // Generation Engine - Source
@@ -529,6 +880,16 @@
             jQuery('#et_anti_refusal').prop('checked', settings.antiRefusal);
         });
 
+        // Image Generation toggle (panel)
+        jQuery('#et_image_generation_enabled_panel').off('change.panel').on('change.panel', function () {
+            settings.imageGenerationEnabled = jQuery(this).is(':checked');
+            saveSettings();
+            // Sync with modal
+            jQuery('#et_image_generation_enabled').prop('checked', settings.imageGenerationEnabled);
+            jQuery('#et_image_generation_plugin_notice').toggle(settings.imageGenerationEnabled === true);
+            updateImageGenerationVisibility();
+        });
+
         // Context settings
         jQuery('#et_ctx_description_panel').off('change.panel').on('change.panel', function () {
             settings.ctxDescription = jQuery(this).is(':checked');
@@ -567,31 +928,16 @@
 
         jQuery('#et_ctx_st_messages_panel').off('change.panel').on('change.panel', function () {
             settings.ctxSTMessages = jQuery(this).is(':checked');
-            jQuery('#et_ctx_st_token_container_panel').toggle(settings.ctxSTMessages);
             saveSettings();
             // Sync with modal
             jQuery('#et_ctx_st_messages').prop('checked', settings.ctxSTMessages);
-            jQuery('#et_ctx_st_token_container').toggle(settings.ctxSTMessages);
         });
 
-        jQuery('#et_ctx_st_token_preset_panel').off('change.panel').on('change.panel', function () {
-            const preset = jQuery(this).val();
-            settings.ctxSTTokenPreset = preset;
-            const budgetMap = { low: 512, medium: 1200, high: 2500 };
-            if (preset !== 'custom') settings.ctxSTTokenBudget = budgetMap[preset];
-            jQuery('#et_ctx_st_token_custom_container_panel').toggle(preset === 'custom');
+        jQuery('#et_ctx_st_context_panel').off('change.panel').on('change.panel', function () {
+            settings.ctxSTContext = jQuery(this).is(':checked');
             saveSettings();
             // Sync with modal
-            jQuery('#et_ctx_st_token_preset').val(preset);
-            jQuery('#et_ctx_st_token_custom_container').toggle(preset === 'custom');
-        });
-
-        jQuery('#et_ctx_st_token_custom_panel').off('change.panel input.panel').on('change.panel input.panel', function () {
-            settings.ctxSTTokenBudget = Math.max(128, parseInt(jQuery(this).val(), 10) || 1200);
-            jQuery(this).val(settings.ctxSTTokenBudget);
-            saveSettings();
-            // Sync with modal
-            jQuery('#et_ctx_st_token_custom').val(settings.ctxSTTokenBudget);
+            jQuery('#et_ctx_st_context').prop('checked', settings.ctxSTContext);
         });
 
         // Font size
@@ -647,13 +993,7 @@
             jQuery('#et_glass_opacity_val').text(settings.glassOpacity + '%');
         });
 
-        // Dynamic Emotion Panel
-        jQuery('#et_dynamic_emotion_panel_panel').off('change.panel').on('change.panel', function () {
-            settings.dynamicEmotionPanel = jQuery(this).is(':checked');
-            applyAppearanceSettings();
-            saveSettings();
-            jQuery('#et_dynamic_emotion_panel').prop('checked', settings.dynamicEmotionPanel);
-        });
+
 
         // FAB Size
         jQuery('#et_fab_size_panel').off('input.panel').on('input.panel', function () {
@@ -665,6 +1005,15 @@
             // Sync with modal
             jQuery('#et_fab_size').val(settings.fabSize);
             jQuery('#et_fab_size_val').text(settings.fabSize + 'px');
+        });
+
+        // FAB Opacity
+        jQuery('#et_fab_opacity_panel').off('input.panel').on('input.panel', function () {
+            settings.fabOpacity = parseInt(jQuery(this).val());
+            jQuery('#et_fab_opacity_val_panel').text(settings.fabOpacity + '%');
+            applyAppearanceSettings();
+            positionFab();
+            saveSettings();
         });
 
         // FAB Icon
@@ -689,12 +1038,31 @@
             jQuery(`.et-icon-option[data-icon="${settings.fabIcon}"]`).addClass('selected');
         });
 
-        jQuery('#et_proactive_rate_limit_panel').off('change.panel input.panel').on('change.panel input.panel', function () {
-            const minutes = Math.max(15, Math.min(2880, parseInt(jQuery(this).val(), 10) || 180));
+        // Activity mode selector (panel accordion)
+        jQuery('#et_activity_mode_grid_panel').off('click.panel').on('click.panel', '.et-activity-btn', function () {
+            const mode = jQuery(this).data('mode');
+            applyActivityMode(mode,
+                '#et_activity_mode_grid_panel', '#et_activity_custom_row_panel',
+                '#et_proactive_rate_limit_panel', '#et_proactive_rate_limit_val_panel', '#et_activity_mode_hint_panel');
+            // Mirror to modal if open
+            applyActivityMode(mode,
+                '#et_activity_mode_grid', '#et_activity_custom_row',
+                '#et_proactive_rate_limit', '#et_proactive_rate_limit_val', '#et_activity_mode_hint');
+        });
+
+        jQuery('#et_proactive_rate_limit_panel').off('input.panel').on('input.panel', function () {
+            const minutes = parseInt(jQuery(this).val(), 10) || 180;
+            jQuery('#et_proactive_rate_limit_val_panel').text(minutes + ' min');
             settings.proactiveRateLimitMinutes = minutes;
-            jQuery(this).val(minutes);
             saveSettings();
             jQuery('#et_proactive_rate_limit').val(minutes);
+            jQuery('#et_proactive_rate_limit_val').text(minutes + ' min');
+        });
+
+        jQuery('#et_proactive_emotion_urgency_panel').off('change.panel').on('change.panel', function () {
+            settings.proactiveEmotionUrgency = jQuery(this).prop('checked');
+            saveSettings();
+            jQuery('#et_proactive_emotion_urgency').prop('checked', settings.proactiveEmotionUrgency);
         });
 
         jQuery('#et_proactive_refresh_panel').off('click.panel').on('click.panel', function () {
@@ -702,7 +1070,10 @@
         });
 
         jQuery('#et_proactive_toggle_panel').off('click.panel').on('click.panel', function () {
-            settings.proactiveMessagingEnabled = settings.proactiveMessagingEnabled === false ? true : false;
+            // Toggle both proactiveMessagingEnabled and dynamicSystemsEnabled
+            const newState = settings.proactiveMessagingEnabled === false ? true : false;
+            settings.proactiveMessagingEnabled = newState;
+            settings.dynamicSystemsEnabled = newState;
             saveSettings();
             updateProactiveToggleButtons();
             startProactiveScheduler();
@@ -712,6 +1083,88 @@
         jQuery('#et_trigger_message_panel').off('click.panel').on('click.panel', function () {
             triggerTestProactiveMessage();
         });
+
+        // Trigger pill click-to-copy (panel accordion)
+        jQuery(document).off('click.pillcopy').on('click.pillcopy', '.et-imagetrig-pill-copyable', function () {
+            const pill = jQuery(this);
+            const text = pill.data('copy');
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                pill.addClass('et-imagetrig-pill-copied');
+                setTimeout(() => pill.removeClass('et-imagetrig-pill-copied'), 1400);
+            }).catch(() => {});
+        });
+
+        // iOS: patch panel sliders for touch. Called here — after the panel
+        // HTML is guaranteed to be in the DOM and all jQuery input.panel
+        // handlers above are already bound — so the touch handler's
+        // dispatched 'input' events will trigger them correctly.
+        if (window.EchoTextSettingsModal && window.EchoTextSettingsModal.patchIOSSliders) {
+            window.EchoTextSettingsModal.patchIOSSliders(document);
+        }
+    }
+
+    // ── Background luminance detection for adaptive glassmorphism ──────────────
+    // Converts a parsed CSS rgb/rgba color string to WCAG relative luminance (0–1).
+    // Returns null if the string cannot be parsed (e.g. named colors, gradients).
+    function cssColorToRelativeLuminance(cssColor) {
+        if (!cssColor) return null;
+        const m = String(cssColor).match(/rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/);
+        if (!m) return null;
+        const lin = v => {
+            const c = v / 255;
+            return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * lin(+m[1]) + 0.7152 * lin(+m[2]) + 0.0722 * lin(+m[3]);
+    }
+
+    // Detects whether SillyTavern's current background is perceptually light.
+    // Uses three independent signals in priority order so it works across the
+    // full variety of ST themes and background image configurations.
+    function detectSillyTavernBgIsLight() {
+        const cs = getComputedStyle(document.documentElement);
+
+        // 1. SmartThemeBlurTintColor — ST's tint for blurred-glass surfaces;
+        //    closely tracks the underlying background lightness.
+        const tint = cs.getPropertyValue('--SmartThemeBlurTintColor').trim();
+        if (tint) {
+            const lum = cssColorToRelativeLuminance(tint);
+            if (lum !== null) return lum > 0.25;
+        }
+
+        // 2. Actual background-color on SillyTavern's body element.
+        const bgEl = document.getElementById('body_2') || document.body;
+        const bgColor = getComputedStyle(bgEl).backgroundColor;
+        if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)' && bgColor !== 'transparent') {
+            const lum = cssColorToRelativeLuminance(bgColor);
+            if (lum !== null) return lum > 0.25;
+        }
+
+        // 3. SmartThemeBodyColor (text color) — inverted: dark text implies light bg.
+        const textColor = cs.getPropertyValue('--SmartThemeBodyColor').trim();
+        if (textColor) {
+            const lum = cssColorToRelativeLuminance(textColor);
+            if (lum !== null) return lum < 0.25;
+        }
+
+        return false; // safe default: treat as dark
+    }
+
+    // Adds or removes html.et-bg-light based on detected background luminance.
+    // Only runs auto-detection for the 'sillytavern' theme preset (all other
+    // presets are explicitly dark and never need the light variant).
+    function applyAdaptiveGlass() {
+        const theme = THEME_PRESETS[settings.theme] || THEME_PRESETS.sillytavern;
+        if (theme.primary) {
+            // Explicit dark theme selected — never apply light glass
+            document.documentElement.classList.remove('et-bg-light');
+            return;
+        }
+        if (detectSillyTavernBgIsLight()) {
+            document.documentElement.classList.add('et-bg-light');
+        } else {
+            document.documentElement.classList.remove('et-bg-light');
+        }
     }
 
     function applyAppearanceSettings() {
@@ -744,19 +1197,13 @@
         document.documentElement.style.setProperty('--et-font-size', settings.fontSize + 'px');
         document.documentElement.style.setProperty('--et-font-family', `'${settings.fontFamily}', sans-serif`);
         document.documentElement.style.setProperty('--et-fab-size', settings.fabSize + 'px');
+        document.documentElement.style.setProperty('--et-fab-opacity', (settings.fabOpacity || 100) / 100);
         document.documentElement.style.setProperty('--et-line-spacing', (settings.lineSpacing || 1.3).toFixed(2));
         document.documentElement.style.setProperty('--et-paragraph-spacing', (settings.paragraphSpacing || 12) + 'px');
 
         loadGoogleFont(settings.fontFamily);
 
-        // Dynamic Emotion Panel — toggle class; actual tint is applied by applyEmotionPanelTint()
-        const panel = jQuery('#et-panel');
-        if (panel.length) {
-            panel.toggleClass('et-emotion-active', settings.dynamicEmotionPanel === true);
-            if (!settings.dynamicEmotionPanel) {
-                document.documentElement.style.removeProperty('--et-emotion-tint');
-            }
-        }
+
 
         // Update FAB
         const fab = jQuery('#et-fab');
@@ -770,6 +1217,8 @@
             const history = getChatHistory();
             renderMessages(history);
         }
+
+        applyAdaptiveGlass();
     }
 
     function hexToRgba(hex, alpha) {
@@ -812,6 +1261,7 @@
         jQuery('#et_profile_settings').hide();
         jQuery('#et_ollama_settings').hide();
         jQuery('#et_openai_settings').hide();
+        updateImageGenerationVisibility();
         if (source === 'profile') jQuery('#et_profile_settings').show();
         if (source === 'ollama') jQuery('#et_ollama_settings').show();
         if (source === 'openai') jQuery('#et_openai_settings').show();
@@ -827,6 +1277,13 @@
             const groupChar = groupManager.getActiveGroupCharacter();
             if (groupChar) return groupChar;
         }
+
+        const pickerChars = getAllCharactersForPicker();
+        if (selectedCharacterKey) {
+            const selectedChar = pickerChars.find(char => char.__key === selectedCharacterKey);
+            if (selectedChar) return selectedChar;
+        }
+
         const context = SillyTavern.getContext();
         if (context.characterId === undefined || context.characterId === null) return null;
         return context.characters?.[context.characterId] || null;
@@ -843,6 +1300,258 @@
         return char?.name || 'Character';
     }
 
+    function getCharacterByKey(characterKey) {
+        if (!characterKey) return null;
+        return getAllCharactersForPicker().find(char => char.__key === characterKey) || null;
+    }
+
+    function applySelectedCharacterToPanel() {
+        if (!panelOpen) return;
+
+        // ── Combine mode: show all members in header ──────────────────
+        if (groupManager && groupManager.isGroupSession() && groupManager.isCombineMode()) {
+            const members = groupManager.getGroupMembers();
+            const charNames = members.map(c => c.name).join(', ');
+            jQuery('#et-panel-drag-handle').removeClass('et-panel-header-no-char');
+            jQuery('#et-panel').removeClass('et-panel-no-char');
+            jQuery('#et-char-name').html(`Group: ${escapeHtml(charNames)}<i class="fa-solid fa-chevron-down et-char-name-caret" aria-hidden="true"></i>`);
+            jQuery('#et-input').attr('placeholder', `Message all: ${charNames}...`).prop('disabled', false);
+            jQuery('#et-send-btn').prop('disabled', false);
+            jQuery('#et-emotion-indicator').addClass('et-emotion-indicator-hidden');
+            updatePanelStatusRow();
+            updateImageGenerationVisibility();
+            jQuery('#et-overflow-saveload, #et-overflow-char-divider, #et-overflow-clear').show();
+            const history = getChatHistory();
+            renderMessages(history);
+            return;
+        }
+
+        // ── Normal / single-character path ───────────────────────────
+        const charName = getCharacterName();
+        const hasChar = !!getCurrentCharacter();
+        const inGroup = groupManager && groupManager.isGroupSession();
+        // Emotion indicator is always hidden in group sessions
+        const emotionEnabled = settings.emotionSystemEnabled !== false && isTetheredMode() && !inGroup;
+
+        jQuery('#et-panel-drag-handle').toggleClass('et-panel-header-no-char', !hasChar);
+        jQuery('#et-panel').toggleClass('et-panel-no-char', !hasChar);
+        jQuery('#et-char-name').html(`${escapeHtml(hasChar ? charName : 'Choose A Character')}<i class="fa-solid fa-chevron-down et-char-name-caret" aria-hidden="true"></i>`);
+        jQuery('#et-char-avatar-wrap').replaceWith(buildAvatarHtml(charName, '', 'et-char-avatar-wrap'));
+        jQuery('#et-input').attr('placeholder', hasChar ? `Text ${charName}...` : 'Text a character...').prop('disabled', !hasChar);
+        jQuery('#et-send-btn').prop('disabled', !hasChar);
+        jQuery('#et-emotion-indicator').toggleClass('et-emotion-indicator-hidden', !emotionEnabled);
+
+        if (emotionEnabled) {
+            updateEmotionIndicator();
+        }
+        updatePanelStatusRow();
+        updateImageGenerationVisibility();
+
+        // Show/hide character-dependent overflow menu items
+        jQuery('#et-overflow-saveload, #et-overflow-char-divider, #et-overflow-clear').toggle(hasChar);
+
+        const history = getChatHistory();
+        renderMessages(history);
+        const charKey = getCharacterKey();
+        if (charKey && isTetheredMode() && !inGroup) {
+            syncProactiveStateWithHistory(charKey, history);
+        }
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getAllCharactersForPicker() { return characterPicker.getAllCharactersForPicker(); }
+    function getAvatarUrlForCharacter(char) { return characterPicker.getAvatarUrlForCharacter(char); }
+    function openCharacterPicker(centerInPanel = false) { characterPicker.openCharacterPicker(centerInPanel); }
+    function openEmbeddedCharacterPicker() { characterPicker.openEmbeddedCharacterPicker(); }
+    function closeCharacterPicker() { characterPicker.closeCharacterPicker(); }
+    function toggleCharacterPicker() { characterPicker.toggleCharacterPicker(); }
+    function _pickerAvatarBg(name) { return characterPicker ? characterPicker._pickerAvatarBg(name) : 'var(--et-theme-color)'; }
+
+    function buildUntetheredStatusHtml() {
+        const key = getCharacterKey();
+        const slot = (key && settings.untetheredInfluence && settings.untetheredInfluence[key]) || {};
+
+        // Icon mappings for mood, personality, and commStyle (from untethered-chat.js)
+        const moodIcons = {
+            playful: { icon: 'fa-solid fa-dice', color: '#a78bfa', label: 'Playful' },
+            angry: { icon: 'fa-solid fa-fire-flame-curved', color: '#f87171', label: 'Angry' },
+            shy: { icon: 'fa-solid fa-face-flushed', color: '#f9a8d4', label: 'Shy' },
+            confident: { icon: 'fa-solid fa-crown', color: '#fbbf24', label: 'Confident' },
+            sad: { icon: 'fa-solid fa-cloud-rain', color: '#60a5fa', label: 'Sad' },
+            happy: { icon: 'fa-solid fa-sun', color: '#facc15', label: 'Happy' },
+            anxious: { icon: 'fa-solid fa-brain', color: '#c084fc', label: 'Anxious' },
+            bored: { icon: 'fa-solid fa-face-meh', color: '#94a3b8', label: 'Bored' },
+            excited: { icon: 'fa-solid fa-bolt-lightning', color: '#fb923c', label: 'Excited' },
+            jealous: { icon: 'fa-solid fa-eye', color: '#4ade80', label: 'Jealous' },
+            flirty: { icon: 'fa-solid fa-wand-magic-sparkles', color: '#f472b6', label: 'Flirty' },
+            cold: { icon: 'fa-solid fa-snowflake', color: '#93c5fd', label: 'Cold' },
+            mysterious: { icon: 'fa-solid fa-mask', color: '#818cf8', label: 'Mysterious' },
+            romantic: { icon: 'fa-solid fa-heart', color: '#fb7185', label: 'Romantic' },
+            erotic: { icon: 'fa-solid fa-fire', color: '#ff6b6b', label: 'Erotic' },
+            explicit: { icon: 'fa-solid fa-droplet', color: '#ff4d8d', label: 'Explicit' }
+        };
+
+        const personalityIcons = {
+            // Eastern
+            tsundere: { icon: 'fa-solid fa-face-angry', color: '#f87171', label: 'Tsundere' },
+            yandere: { icon: 'fa-solid fa-heart-crack', color: '#fb7185', label: 'Yandere' },
+            kuudere: { icon: 'fa-solid fa-snowflake', color: '#93c5fd', label: 'Kuudere' },
+            dandere: { icon: 'fa-solid fa-feather', color: '#86efac', label: 'Dandere' },
+            deredere: { icon: 'fa-solid fa-face-laugh-beam', color: '#facc15', label: 'Deredere' },
+            himdere: { icon: 'fa-solid fa-gem', color: '#c084fc', label: 'Himdere' },
+            tsundere_soft: { icon: 'fa-solid fa-face-smile-wink', color: '#fda4af', label: 'Tsundere (Soft)' },
+            kuudere_dark: { icon: 'fa-solid fa-moon', color: '#818cf8', label: 'Kuudere (Dark)' },
+            // Western
+            introvert: { icon: 'fa-solid fa-person-rays', color: '#818cf8', label: 'Introvert' },
+            extrovert: { icon: 'fa-solid fa-users', color: '#fb923c', label: 'Extrovert' },
+            witty: { icon: 'fa-solid fa-comment-dots', color: '#facc15', label: 'Witty' },
+            sarcastic: { icon: 'fa-solid fa-face-rolling-eyes', color: '#94a3b8', label: 'Sarcastic' },
+            sweet: { icon: 'fa-solid fa-candy-cane', color: '#f9a8d4', label: 'Sweet' },
+            sassy: { icon: 'fa-solid fa-hand-back-fist', color: '#c084fc', label: 'Sassy' },
+            brooding: { icon: 'fa-solid fa-cloud', color: '#64748b', label: 'Brooding' },
+            cheerleader: { icon: 'fa-solid fa-star', color: '#fbbf24', label: 'Cheerleader' },
+            loner: { icon: 'fa-solid fa-person', color: '#475569', label: 'Loner' },
+            mentor: { icon: 'fa-solid fa-graduation-cap', color: '#34d399', label: 'Mentor' },
+            rebel: { icon: 'fa-solid fa-bolt', color: '#f87171', label: 'Rebel' },
+            professional: { icon: 'fa-solid fa-briefcase', color: '#60a5fa', label: 'Professional' },
+            clown: { icon: 'fa-solid fa-face-grin-squint', color: '#fb923c', label: 'Clown' },
+            intellectual: { icon: 'fa-solid fa-book-open', color: '#818cf8', label: 'Intellectual' },
+            passionate: { icon: 'fa-solid fa-circle-radiation', color: '#f87171', label: 'Passionate' },
+            may_december: { icon: 'fa-solid fa-infinity', color: '#a78bfa', label: 'May–December' }
+        };
+
+        const commStyleIcons = {
+            formal:     { icon: 'fa-solid fa-file-pen',              color: '#60a5fa', label: 'Formal' },
+            casual:     { icon: 'fa-solid fa-comment',               color: '#4ade80', label: 'Casual' },
+            vintage:    { icon: 'fa-solid fa-feather-pointed',       color: '#fbbf24', label: 'Vintage' },
+            tech_savvy: { icon: 'fa-solid fa-microchip',             color: '#38bdf8', label: 'Tech-Savvy' },
+            poetic:     { icon: 'fa-solid fa-pen-nib',               color: '#c084fc', label: 'Poetic' },
+            direct:     { icon: 'fa-solid fa-arrow-right',           color: '#f87171', label: 'Direct' },
+            passive:    { icon: 'fa-solid fa-ellipsis',              color: '#94a3b8', label: 'Passive' },
+            aggressive: { icon: 'fa-solid fa-bullhorn',              color: '#fb923c', label: 'Aggressive' },
+            banter:     { icon: 'fa-solid fa-comments',              color: '#fb923c', label: 'Banter' },
+            theatrical: { icon: 'fa-solid fa-masks-theater',         color: '#f472b6', label: 'Theatrical' },
+            cryptic:    { icon: 'fa-solid fa-eye-slash',             color: '#818cf8', label: 'Cryptic' },
+            nurturing:  { icon: 'fa-solid fa-hand-holding-heart',    color: '#34d399', label: 'Nurturing' },
+        };
+
+        const parts = [];
+        const tooltips = [];
+
+        if (slot.mood && moodIcons[slot.mood]) {
+            const m = moodIcons[slot.mood];
+            parts.push(`<span class="et-status-emotion-icon et-uc-status-icon" style="color:${m.color}"><i class="${m.icon}"></i></span>`);
+            tooltips.push(`Mood: ${m.label}`);
+        }
+        if (slot.personality && personalityIcons[slot.personality]) {
+            const p = personalityIcons[slot.personality];
+            parts.push(`<span class="et-status-emotion-icon et-uc-status-icon" style="color:${p.color}"><i class="${p.icon}"></i></span>`);
+            tooltips.push(`Personality: ${p.label}`);
+        }
+        if (slot.commStyle && commStyleIcons[slot.commStyle]) {
+            const c = commStyleIcons[slot.commStyle];
+            parts.push(`<span class="et-status-emotion-icon et-uc-status-icon" style="color:${c.color}"><i class="${c.icon}"></i></span>`);
+            tooltips.push(`Voice: ${c.label}`);
+        }
+
+        if (!parts.length) {
+            return '<span class="et-status-placeholder">Set Chat Influence</span>';
+        }
+
+        const tooltip = tooltips.join(' | ');
+        return `<span class="et-status-main et-uc-status-main">Influence</span><span class="et-status-chip et-uc-status-chip" title="${tooltip}">${parts.join('')}</span>`;
+    }
+
+    function buildTetheredStatusHtml() {
+        const emotionEnabled = settings.emotionSystemEnabled !== false;
+        if (!emotionEnabled) {
+            return '<span class="et-status-placeholder">Emotion system is off</span>';
+        }
+
+        const state = getEmotionState();
+        if (!state || typeof state !== 'object') {
+            return '<span class="et-status-placeholder">Emotion unavailable</span>';
+        }
+
+        // Match icons from PLUTCHIK_EMOTIONS in emotion-system.js
+        const defs = {
+            joy: { label: 'Joy', icon: 'fa-solid fa-sun', color: '#facc15', intensity: ['Serenity', 'Joy', 'Ecstasy'] },
+            trust: { label: 'Trust', icon: 'fa-solid fa-handshake', color: '#4ade80', intensity: ['Acceptance', 'Trust', 'Admiration'] },
+            fear: { label: 'Fear', icon: 'fa-solid fa-ghost', color: '#a78bfa', intensity: ['Apprehension', 'Fear', 'Terror'] },
+            surprise: { label: 'Surprise', icon: 'fa-solid fa-bolt', color: '#38bdf8', intensity: ['Distraction', 'Surprise', 'Amazement'] },
+            sadness: { label: 'Sadness', icon: 'fa-solid fa-cloud-rain', color: '#60a5fa', intensity: ['Pensiveness', 'Sadness', 'Grief'] },
+            disgust: { label: 'Disgust', icon: 'fa-solid fa-face-grimace', color: '#a3e635', intensity: ['Boredom', 'Disgust', 'Loathing'] },
+            anger: { label: 'Anger', icon: 'fa-solid fa-fire-flame-curved', color: '#f87171', intensity: ['Annoyance', 'Anger', 'Rage'] },
+            anticipation: { label: 'Anticipation', icon: 'fa-solid fa-forward', color: '#fb923c', intensity: ['Interest', 'Anticipation', 'Vigilance'] },
+            love: { label: 'Love', icon: 'fa-solid fa-heart', color: '#fb7bb8', intensity: ['Fondness', 'Love', 'Adoration'] }
+        };
+
+        let dominantId = null;
+        let dominantVal = -Infinity;
+        Object.keys(defs).forEach((id) => {
+            const val = Number(state[id] || 0);
+            if (val > dominantVal) {
+                dominantVal = val;
+                dominantId = id;
+            }
+        });
+
+        const dominant = defs[dominantId] || defs.joy;
+        // Get sub-emotion label based on intensity value (matching emotion-system.js logic)
+        const intensityLabel = dominantVal < 33 ? dominant.intensity[0] : dominantVal < 66 ? dominant.intensity[1] : dominant.intensity[2];
+        const intensityPercent = Math.round(Math.max(0, dominantVal));
+        // Tooltip with full emotion info
+        const tooltip = `Current Emotion: ${dominant.label} | ${intensityLabel} (${intensityPercent}%)`;
+
+        return `<span class="et-status-chip et-status-chip-emotion" title="${tooltip}"><span class="et-status-emotion-icon" style="color:${dominant.color}"><i class="${dominant.icon}"></i></span><span class="et-status-main" style="color:${dominant.color}">${intensityLabel}</span></span>`;
+    }
+
+    function updatePanelStatusRow(options = {}) {
+        const { typing = false } = options;
+        const row = jQuery('#et-panel-status-trigger');
+        const content = jQuery('#et-panel-status-content');
+        if (!row.length || !content.length) return;
+
+        // Always sync the mode-toggle button visibility with group state.
+        // The panel HTML sets this correctly on first build, but dynamic transitions
+        // (switching into/out of a group chat while the panel is already open) need
+        // this path to hide or restore the button without a full panel rebuild.
+        const inGroupNow = !!(groupManager && groupManager.isGroupSession());
+        jQuery('#et-mode-toggle-btn')
+            .toggleClass('et-mode-toggle-hidden', inGroupNow)
+            .toggleClass('et-mode-toggle-group-off', inGroupNow);
+
+        // Note: typing state is indicated by the send/stop button — the status row
+        // continues to show emotion/mood info during generation.
+
+        // In group session: emotion system and chat influence are disabled.
+        // Show a static group indicator chip instead.
+        if (groupManager && groupManager.isGroupSession()) {
+            row.removeClass('et-panel-status-clickable');
+            if (groupManager.isCombineMode()) {
+                row.attr('title', 'Combined mode — all characters will reply in sequence');
+                content.html('<span class="et-status-chip et-status-group-chip"><i class="fa-solid fa-layer-group"></i><span class="et-status-main">Combined</span></span>');
+            } else {
+                row.attr('title', 'Group Chat — emotion system and chat influence are paused');
+                content.html('<span class="et-status-chip et-status-group-chip"><i class="fa-solid fa-users"></i><span class="et-status-main">Group Chat</span></span>');
+            }
+            return;
+        }
+
+        const tethered = isTetheredMode();
+        row.addClass('et-panel-status-clickable');
+        row.attr('title', tethered ? 'Open emotion details' : 'Open chat influence');
+        content.html(tethered ? buildTetheredStatusHtml() : buildUntetheredStatusHtml());
+    }
+
     function getUserName() {
         return SillyTavern.getContext().name1 || 'You';
     }
@@ -851,89 +1560,357 @@
         return settings.chatMode !== 'untethered';
     }
 
-    function buildSystemPrompt() {
-        const char = getCurrentCharacter();
+    function isCombinedGroupMode() {
+        return !!(groupManager && groupManager.isGroupSession() && groupManager.isCombineMode());
+    }
+
+    function getCombinedGroupMembers() {
+        return groupManager ? groupManager.getGroupMembers() : [];
+    }
+
+    async function buildCharacterCardContext(char, options = {}) {
+        if (!char) return '';
+        const includePersona = options.includePersona !== false;
+        const includeDescription = options.includeDescription !== false;
+        const includePersonality = options.includePersonality !== false;
+        const includeScenario = options.includeScenario === true;
+        const includeWorldInfo = options.includeWorldInfo === true;
+        const tethered = options.tethered !== false;
+        const sections = [];
+
+        if (includePersona) {
+            try {
+                const powerUser = SillyTavern.getContext().powerUserSettings || {};
+                const personaDescription = powerUser.persona_description || '';
+                if (personaDescription && personaDescription.trim()) {
+                    sections.push(`${getUserName()}'s persona: ${expandTimeDateMacros(replaceMacros(personaDescription))}`);
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        const name = char.name || 'Character';
+        const charDescription = char.description || char.data?.description || '';
+        const charPersonality = char.personality || char.data?.personality || '';
+        const charScenario = char.scenario || char.data?.scenario || '';
+
+        if (includeDescription && (tethered ? settings.ctxDescription !== false : true) && charDescription) {
+            sections.push(`${name}'s description: ${expandTimeDateMacros(replaceMacros(charDescription))}`);
+        }
+
+        if (includePersonality && (tethered ? settings.ctxPersonality !== false : true) && charPersonality) {
+            sections.push(`${name}'s personality: ${expandTimeDateMacros(replaceMacros(charPersonality))}`);
+        }
+
+        if (includeScenario && (tethered ? settings.ctxScenario !== false : true) && charScenario) {
+            sections.push(`Scenario: ${expandTimeDateMacros(replaceMacros(charScenario))}`);
+        }
+
+        if (includeWorldInfo) {
+            try {
+                const worldInfoData = await getActiveWorldInfoEntries();
+                if (worldInfoData) {
+                    sections.push(`World Information:\n${worldInfoData}`);
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        return sections.length ? `\n\n<character_reference>\n${sections.join('\n\n')}\n</character_reference>` : '';
+    }
+
+    function buildCombinedHistoryContext(history, members) {
+        const safeHistory = Array.isArray(history) ? history : [];
+        const safeMembers = Array.isArray(members) ? members : [];
+        if (!safeHistory.length) return '';
+
+        const memberMap = new Map(safeMembers.map(member => [member.avatar || member.name, member.name || 'Character']));
+        const lines = safeHistory.map(msg => {
+            const sender = msg.is_user
+                ? getUserName()
+                : (msg.charName || memberMap.get(msg.charKey) || getCharacterName());
+            return `${sender}: ${stripThinkingTags(msg.mes || '')}`;
+        }).filter(Boolean);
+
+        return lines.length
+            ? `\n\nRecent group chat history:\n${lines.join('\n')}`
+            : '';
+    }
+
+    /**
+     * Builds the shared group system prompt used as the first message in every
+     * combined-mode API call. Intentionally brief — character cards and history
+     * are injected at the message-turn level by buildCombinedGroupApiMessages.
+     */
+    function buildGroupSharedSystemPrompt() {
+        const members = getCombinedGroupMembers();
+        const memberNames = members.map(m => m.name || 'Character').join(', ');
+        const userName = getUserName();
+        const parts = [];
+
+        // ── Group scene-setting (user-editable via Prompt Manager) ──────────
+        const configDefaults = window.EchoTextConfig?.defaultSettings || {};
+        let sceneFrame = replaceMacros(
+            (settings.promptGroupSceneFrame != null && settings.promptGroupSceneFrame !== '')
+                ? settings.promptGroupSceneFrame
+                : (configDefaults.promptGroupSceneFrame || '')
+        );
+        // {{group_members}} is runtime-dynamic — substitute after replaceMacros
+        sceneFrame = sceneFrame.replace(/\{\{group_members\}\}/g, memberNames);
+        if (sceneFrame) parts.push(sceneFrame);
+
+        // ── Anti-refusal framing ─────────────────────────────────────────────
+        if (settings.antiRefusal === true) {
+            const antiRefusal = replaceMacros(
+                settings.promptAntiRefusalFrame ||
+                window.EchoTextConfig?.defaultSettings?.promptAntiRefusalFrame || ''
+            );
+            if (antiRefusal) parts.push(antiRefusal);
+        } else {
+            parts.push('All participants are fictional. Stay fully in character and do not add disclaimers or refusals.');
+        }
+
+        return parts.filter(Boolean).join('\n\n');
+    }
+
+    /**
+     * Builds the full API messages array for one character's turn in Combined Group Mode.
+     *
+     * Layout:
+     *   [system]           Shared group prompt + anti-refusal framing
+     *   [user / assistant] Prior history turns — assistant turns carry "[CharName]: " attribution
+     *   [user]             Latest user message
+     *                      + user persona description
+     *                      + this character's Description & Personality card
+     *                      + generation cue + verbosity instruction
+     *
+     * This keeps the three concerns — group framing, history context, and per-character
+     * identity — in their optimal positions: framing at primacy, character card at recency,
+     * history bridging the two so the model always knows who said what.
+     *
+     * @param {Array}  history - full combine history including the latest user message
+     * @param {object} char    - the character object whose turn it is to reply
+     * @returns {{ apiMessages, rawPrompt, systemPrompt }}
+     */
+    async function buildCombinedGroupApiMessages(history, char) {
+        const charName  = char?.name || 'Character';
+        const userName  = getUserName();
+        const allHistory = Array.isArray(history) ? history : [];
+
+        // ── 1. Shared system prompt (group scene + anti-refusal) ─────────────
+        const systemPrompt = buildGroupSharedSystemPrompt();
+
+        // ── 2. Split history: prior turns vs. latest user message ────────────
+        const lastUserIdx = findLastUserMessageIndex(allHistory);
+        const priorHistory = lastUserIdx >= 0 ? allHistory.slice(0, lastUserIdx) : allHistory;
+        const latestUserMsg = lastUserIdx >= 0 ? allHistory[lastUserIdx] : null;
+
+        // ── 3. Prior history as attributed message turns ──────────────────────
+        // Assistant turns get "[CharName]: " prefixed so the model never mistakes
+        // another character's line as its own prior output.
+        const historyMessages = priorHistory.map(msg => {
+            if (msg.is_user) {
+                return { role: 'user', content: stripThinkingTags(msg.mes || '') };
+            }
+            const speaker = msg.charName || charName;
+            return { role: 'assistant', content: `${speaker}: ${stripThinkingTags(msg.mes || '')}` };
+        });
+
+        // ── 4. Final user turn: input + persona + character card + cue ────────
+        const finalUserParts = [];
+
+        // Latest user message
+        if (latestUserMsg) {
+            finalUserParts.push(latestUserMsg.mes || '');
+        }
+
+        // User persona description
+        try {
+            const powerUser = SillyTavern.getContext().powerUserSettings || {};
+            const personaDesc = (powerUser.persona_description || '').trim();
+            if (personaDesc) {
+                finalUserParts.push(`<user_persona>\n${userName}'s persona: ${expandTimeDateMacros(replaceMacros(personaDesc))}\n</user_persona>`);
+            }
+        } catch (e) { /* ignore */ }
+
+        // Character card — wrapped in XML so models treat it as reference data, not output
+        const charDescription = (char?.description || char?.data?.description || '').trim();
+        const charPersonality  = (char?.personality  || char?.data?.personality  || '').trim();
+        const charCardParts = [];
+        if (charDescription) charCardParts.push(`${charName}'s description: ${expandTimeDateMacros(replaceMacros(charDescription))}`);
+        if (charPersonality)  charCardParts.push(`${charName}'s personality: ${expandTimeDateMacros(replaceMacros(charPersonality))}`);
+        if (charCardParts.length > 0) finalUserParts.push(`<character_reference>\n${charCardParts.join('\n\n')}\n</character_reference>`);
+
+        // Generation cue (user-editable via Prompt Manager — supports {{char}} macro)
+        const charCueTemplate =
+            (settings.promptGroupCharacterCue != null && settings.promptGroupCharacterCue !== '')
+                ? settings.promptGroupCharacterCue
+                : (window.EchoTextConfig?.defaultSettings?.promptGroupCharacterCue || '');
+        // replaceMacros resolves {{char}} via the currently active character key
+        // (set by generateEchoTextCombined before calling this function).
+        const charCue = expandTimeDateMacros(replaceMacros(charCueTemplate));
+        if (charCue) finalUserParts.push(charCue);
+
+        // Verbosity
+        const charKey = char?.avatar || char?.name || '';
+        const verbosity = charKey && settings.verbosityByCharacter ? settings.verbosityByCharacter[charKey] : null;
+        finalUserParts.push(getVerbosityPrompt(verbosity));
+
+        const finalUserContent = finalUserParts.filter(Boolean).join('\n\n');
+
+        // ── Assemble ──────────────────────────────────────────────────────────
+        const apiMessages = [
+            { role: 'system', content: systemPrompt },
+            ...historyMessages,
+            { role: 'user', content: finalUserContent }
+        ];
+
+        // rawPrompt for non-chat backends (KoboldAI, text-completion proxies)
+        let rawPrompt = '';
+        allHistory.forEach(msg => {
+            const speaker = msg.is_user ? userName : (msg.charName || charName);
+            rawPrompt += `${speaker}: ${msg.mes}\n`;
+        });
+        rawPrompt += `${charName}:`;
+
+        return { apiMessages, rawPrompt, systemPrompt };
+    }
+
+    /**
+     * @deprecated Combined mode now uses buildCombinedGroupApiMessages.
+     * Kept as a thin wrapper so any external callers (e.g. proactive scheduler)
+     * that still reference buildCombinedSystemPrompt don't break.
+     */
+    async function buildCombinedSystemPrompt(targetChar, history = []) {
+        return buildGroupSharedSystemPrompt();
+    }
+
+    /**
+     * Returns the verbosity instruction string for the given verbosity level.
+     * Reads from user-editable settings first, falls back to config defaults.
+     * @param {string|null} verbosity - 'short' | 'long' | null/undefined (medium)
+     * @returns {string}
+     */
+    function getVerbosityPrompt(verbosity) {
+        const cfg = window.EchoTextConfig && window.EchoTextConfig.defaultSettings || {};
+        if (verbosity === 'short') {
+            return (settings.promptVerbosityShort != null && settings.promptVerbosityShort !== '')
+                ? settings.promptVerbosityShort
+                : (cfg.promptVerbosityShort || 'VERBOSITY: Keep your reply to 1-2 short sentences maximum. Be concise and direct.');
+        }
+        if (verbosity === 'long') {
+            return (settings.promptVerbosityLong != null && settings.promptVerbosityLong !== '')
+                ? settings.promptVerbosityLong
+                : (cfg.promptVerbosityLong || 'VERBOSITY: You may reply with 4-8 sentences with more detail, expressiveness, and depth.');
+        }
+        // medium / default
+        return (settings.promptVerbosityMedium != null && settings.promptVerbosityMedium !== '')
+            ? settings.promptVerbosityMedium
+            : (cfg.promptVerbosityMedium || 'VERBOSITY: Keep your reply to 2-4 sentences, natural text-message length.');
+    }
+
+    async function buildSystemPrompt(targetCharOverride = null) {
+        if (isCombinedGroupMode()) {
+            const groupId = groupManager ? groupManager.getCurrentGroupId() : null;
+            const combinedHistory = groupId ? groupManager.getCombineHistory(groupId, !isTetheredMode()) : [];
+            return buildCombinedSystemPrompt(targetCharOverride || getCurrentCharacter(), combinedHistory);
+        }
+
+        const char = targetCharOverride || getCurrentCharacter();
         if (!char) return 'You are a helpful assistant. Reply concisely like in a text message. You may use Markdown formatting like **bold**, *italic*, and `code`.';
 
         const name = char.name || 'Character';
         const context = SillyTavern.getContext();
         const tethered = isTetheredMode();
 
-        // Helper: get prompt from settings with macro replacement
+        // Helper: get prompt from settings with macro replacement.
+        // expandTimeDateMacros is applied AFTER replaceMacros so that SillyTavern
+        // time/date tokens ({{time}}, {{date}}, {{weekday}}) in character cards,
+        // persona descriptions, or custom prompts are resolved to concrete strings
+        // before the system prompt reaches the LLM. Without this, {{time}} survives
+        // as a literal token and the model interprets it as a slot to fill — causing
+        // it to output the clock time at the start of its generated message.
         function getPrompt(key) {
             const val = settings[key];
-            if (val !== undefined && val !== null && val !== '') return replaceMacros(val);
+            if (val !== undefined && val !== null && val !== '') return expandTimeDateMacros(replaceMacros(val));
             // Fall back to config default
             const defaults = window.EchoTextConfig && window.EchoTextConfig.defaultSettings;
-            return defaults && defaults[key] ? replaceMacros(defaults[key]) : '';
+            return defaults && defaults[key] ? expandTimeDateMacros(replaceMacros(defaults[key])) : '';
         }
 
-        // --- Layer 1: Identity + optional fiction frame ---
+        // ── ORDERING RATIONALE ──────────────────────────────────────────────────
+        // LLMs attend most strongly to content at the beginning (primacy) and end
+        // (recency) of the context window.
+        //
+        //  1. IDENTITY   — who the character IS (primacy anchor)
+        //  2. CHARACTER  — description, personality, scenario, persona, world info
+        //                  (stable knowledge the model must fully absorb before
+        //                   reading any dynamic content)
+        //  3. MEMORY     — inside jokes, emotion state, untethered influence flags
+        //                  (semi-static contextual colour)
+        //  4. CONTINUITY — recent ST chat history (dynamic, recency-anchored so it
+        //                  directly informs the reply without drowning the character)
+        //  5. LOCK       — fiction frame + persona-lock reminder (recency anchor for
+        //                  behaviour — last thing read before the model replies)
+        //  6. VERBOSITY  — formatting instruction (must be last)
+        // ───────────────────────────────────────────────────────────────────────
+
+        // ── 1. IDENTITY ─────────────────────────────────────────────────────────
         let prompt = getPrompt('promptSystemBase');
 
-        if (settings.antiRefusal !== false) {
-            prompt += '\n\n' + getPrompt('promptAntiRefusalFrame');
-        }
-
-        if (tethered && settings.ctxSTMessages === true) {
-            try {
-                const tokenBudget = settings.ctxSTTokenBudget || 1200;
-                const stContext = getSTChatMessages(tokenBudget);
-                if (stContext) {
-                    prompt += `\n\nSTORY CONTINUITY (high priority):\nThe following recent messages are canonical. Keep your reply consistent with these events, relationships, and tone.\n${stContext}`;
-                }
-            } catch (e) { /* ignore */ }
-        }
-
-        // Description
-        if ((tethered ? settings.ctxDescription !== false : true) && char.description) {
-            prompt += `\n\n${name}'s description: ${replaceMacros(char.description)}`;
-        }
-
-        // Personality
-        if ((tethered ? settings.ctxPersonality !== false : true) && char.personality) {
-            prompt += `\n\n${name}'s personality: ${replaceMacros(char.personality)}`;
-        }
-
-        // Scenario
-        if ((tethered ? settings.ctxScenario !== false : true) && char.scenario) {
-            prompt += `\n\nScenario: ${replaceMacros(char.scenario)}`;
-        }
-
-        // Persona (user's persona description)
+        // User's persona description
         if (tethered ? settings.ctxPersona === true : true) {
             try {
-                const personaName = context.persona || '';
-                const personaDescription = (context.personas && context.personas[personaName] && context.personas[personaName].description)
-                    || personaName || '';
-                if (personaDescription) {
-                    prompt += `\n\n${getUserName()}'s persona: ${replaceMacros(personaDescription)}`;
+                const powerUser = SillyTavern.getContext().powerUserSettings || {};
+                const personaDescription = powerUser.persona_description || '';
+                if (personaDescription && personaDescription.trim()) {
+                    prompt += `\n\n<user_persona>\n${getUserName()}'s persona: ${expandTimeDateMacros(replaceMacros(personaDescription))}\n</user_persona>`;
                 }
             } catch (e) { /* ignore */ }
         }
 
-        // World Info / Lorebook entries
+        // ── 2. CHARACTER KNOWLEDGE ───────────────────────────────────────────────
+        // Support both V1 (top-level fields) and V2 (nested under char.data) card formats
+        const charDescription = char.description || char.data?.description || '';
+        const charPersonality  = char.personality  || char.data?.personality  || '';
+        const charScenario     = char.scenario      || char.data?.scenario      || '';
+
+        // Character card fields — wrapped in <character_reference> XML tags so models
+        // treat them as scoped reference data rather than content to reproduce.
+        const charRefParts = [];
+        if ((tethered ? settings.ctxDescription !== false : true) && charDescription) {
+            charRefParts.push(`${name}'s description: ${expandTimeDateMacros(replaceMacros(charDescription))}`);
+        }
+        if ((tethered ? settings.ctxPersonality !== false : true) && charPersonality) {
+            charRefParts.push(`${name}'s personality: ${expandTimeDateMacros(replaceMacros(charPersonality))}`);
+        }
+        if ((tethered ? settings.ctxScenario !== false : true) && charScenario) {
+            charRefParts.push(`Scenario: ${expandTimeDateMacros(replaceMacros(charScenario))}`);
+        }
         if (tethered && settings.ctxWorldInfo === true) {
             try {
-                const worldInfoData = getActiveWorldInfoEntries();
+                const worldInfoData = await getActiveWorldInfoEntries();
                 if (worldInfoData) {
-                    prompt += `\n\nWorld Information:\n${worldInfoData}`;
+                    charRefParts.push(`World Information:\n${worldInfoData}`);
                 }
             } catch (e) { /* ignore */ }
         }
-
-        // Emotion system context
-        if (tethered) {
-            prompt += buildEmotionContext();
-            // Inside jokes memory injection (occasional, tethered-only)
-            prompt += buildInsideJokesContext();
+        if (charRefParts.length > 0) {
+            prompt += `\n\n<character_reference>\n${charRefParts.join('\n\n')}\n</character_reference>`;
         }
 
-        // Untethered chat overlay context (mood, personality, comm style)
-        prompt += buildUntetheredChatContext();
 
-        // --- Layer 2: Persona-lock reminder (replaces IMPORTANT block) ---
-        if (settings.antiRefusal !== false) {
+        // ── 3. MEMORY & MOOD ─────────────────────────────────────────────────────
+        // Shared memories (inside jokes, people, hobbies, etc.) fire in both modes.
+        // Emotion state is tethered-only (it depends on live ST chat context).
+        prompt += buildInsideJokesContext();
+        if (tethered) {
+            prompt += buildEmotionContext();
+        }
+
+        // ── 4. BEHAVIOUR LOCK ────────────────────────────────────────────────────
+        // Fiction frame + persona-lock reminder land last so they act as the final
+        // instruction the model reads before generating — maximising adherence.
+        if (settings.antiRefusal === true) {
+            prompt += '\n\n' + getPrompt('promptAntiRefusalFrame');
             prompt += tethered
                 ? `\n\n${getPrompt('promptTetheredReminder')}`
                 : `\n\n${getPrompt('promptUntetheredReminder')}`;
@@ -943,51 +1920,81 @@
                 : `\n\n${getPrompt('promptUntetheredNoFrame')}`;
         }
 
-        // Verbosity instruction
+        // ── 5. UNTETHERED CHAT OVERLAY ───────────────────────────────────────────
+        // Placed AFTER the behaviour lock so mood/personality/style directives land
+        // at recency — the last substantive instruction the model reads before
+        // generating. Previously this lived in section 3 (before the lock) AND was
+        // wrapped in <character_influence> XML tags, which caused the LLM to treat
+        // the directives as passive reference data instead of active instructions,
+        // silently nullifying the user's Chat Influence settings.
+        if (!tethered) {
+            prompt += buildUntetheredChatContext();
+        }
+
+        // ── 6. VERBOSITY ─────────────────────────────────────────────────────────
         const charKey = getCharacterKey();
         const verbosity = charKey && settings.verbosityByCharacter ? settings.verbosityByCharacter[charKey] : null;
-        if (verbosity === 'short') {
-            prompt += '\n\nVERBOSITY: Keep your reply to 1-2 short sentences maximum. Be concise and direct.';
-        } else if (verbosity === 'long') {
-            prompt += '\n\nVERBOSITY: You may reply with 4-8 sentences with more detail, expressiveness, and depth.';
-        } else {
-            // default / 'medium'
-            prompt += '\n\nVERBOSITY: Keep your reply to 2-4 sentences, natural text-message length.';
-        }
+        prompt += '\n\n' + getVerbosityPrompt(verbosity);
 
         return prompt;
     }
 
-    function getActiveWorldInfoEntries() {
+    async function getActiveWorldInfoEntries() {
+        // Fetches lorebook entries for the current character via ST's /api/worldinfo/get
+        // endpoint. Includes all non-disabled entries with order >= 250 — this threshold
+        // captures both "Constant" (always-on) entries and high-priority normal entries
+        // that carry significant lore context, without pulling in minor keyword-only entries.
         try {
-            const context = SillyTavern.getContext();
-            // Try to get world info from the context
-            const worldInfo = context.worldInfo || context.world_info;
-            if (!worldInfo) return null;
+            const char = getCurrentCharacter();
+            if (!char) return null;
 
-            const entries = [];
-            // Handle different world info formats
-            if (Array.isArray(worldInfo)) {
-                worldInfo.forEach(entry => {
-                    if (entry.content || entry.text) {
-                        entries.push(entry.content || entry.text);
-                    }
-                });
-            } else if (typeof worldInfo === 'object') {
-                Object.values(worldInfo).forEach(entry => {
-                    if (entry && (entry.content || entry.text)) {
-                        entries.push(entry.content || entry.text);
-                    }
-                });
-            }
+            // Resolve the lorebook name from the character card.
+            // V2 cards: data.extensions.world  (preferred)
+            // V1 cards: worldInfoName or world (fallback)
+            const bookName = char?.data?.extensions?.world
+                || char?.data?.world
+                || char?.worldInfoName
+                || char?.world
+                || null;
 
-            return entries.length > 0 ? entries.join('\n\n') : null;
+            if (!bookName) return null;
+
+            // Fetch the book data from Silly Tavern's world info API.
+            // Response shape: { entries: { [uid]: entry } }
+            const headers = SillyTavern.getContext().getRequestHeaders();
+            const resp = await fetch('/api/worldinfo/get', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({ name: bookName })
+            });
+
+            if (!resp.ok) return null;
+
+            const bookData = await resp.json();
+            const entryMap = bookData?.entries;
+            if (!entryMap || typeof entryMap !== 'object') return null;
+
+            // Collect entries with order >= 250 that are not disabled.
+            // "Constant" (blue) entries in ST have a high order by default (e.g. 950);
+            // normal keyword entries can also qualify if the author set order >= 250.
+            const ORDER_THRESHOLD = 250;
+            const texts = [];
+            Object.values(entryMap).forEach(entry => {
+                if (!entry) return;
+                if (entry.disable || entry.disabled) return;
+                const order = typeof entry.order === 'number' ? entry.order : 0;
+                if (order < ORDER_THRESHOLD) return;
+                const text = (entry.content || entry.text || '').trim();
+                if (text) texts.push(text);
+            });
+
+            return texts.length > 0 ? texts.join('\n\n') : null;
         } catch (e) {
             return null;
         }
     }
 
-    function getSTChatMessages(tokenBudget) {
+    function getSTChatMessages() {
         try {
             const context = SillyTavern.getContext();
             const chat = context.chat;
@@ -1000,19 +2007,12 @@
             const char = getCurrentCharacter();
             const firstMes = (char && char.first_mes) ? char.first_mes.trim() : null;
 
-            // Walk from newest to oldest, accumulating estimated tokens (chars / 4)
-            // until we exhaust the budget.
-            const budget = Math.max(128, tokenBudget || 1200);
             const selected = [];
-            let usedTokens = 0;
 
             for (let i = chat.length - 1; i >= 0; i--) {
                 const msg = chat[i];
                 if (!msg.is_user && firstMes && (msg.mes || '').trim() === firstMes) continue;
-                const tokens = Math.ceil((msg.mes || '').length / 4);
-                if (usedTokens + tokens > budget && selected.length > 0) break;
                 selected.unshift(msg);
-                usedTokens += tokens;
             }
 
             if (!selected.length) return null;
@@ -1036,11 +2036,21 @@
         return new Date().toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
     }
 
+    function getCurrentWeekdayMacroString() {
+        return new Date().toLocaleDateString([], { weekday: 'long' });
+    }
+
     function expandTimeDateMacros(text) {
         if (!text) return '';
         return String(text)
-            .replace(/{{\s*time\s*}}/gi, getCurrentTimeMacroString())
-            .replace(/{{\s*date\s*}}/gi, getCurrentDateMacroString());
+            .replace(/{{\s*time\s*}}/gi, getCurrentTimeMacroString)
+            .replace(/{{\s*date\s*}}/gi, getCurrentDateMacroString)
+            .replace(/{{\s*weekday\s*}}/gi, getCurrentWeekdayMacroString);
+    }
+
+    function cleanGeneratedResponse(text) {
+        if (!text) return '';
+        return String(text).trim();
     }
 
     function replaceMacros(text) {
@@ -1050,26 +2060,109 @@
         return text.replace(/{{char}}/gi, charName).replace(/{{user}}/gi, userName);
     }
 
+
+    // ============================================================
+    // THINKING / REASONING TAG HELPER
+    // ============================================================
+
+    /**
+     * Strips AI thinking/reasoning tag blocks from text before token counting.
+     * Handles: <thinking>, <think>, <thought>, <reasoning>, <reason> (case-insensitive).
+     * This prevents internal model reasoning from inflating context budgets.
+     */
+    function stripThinkingTags(text) {
+        if (!text) return text;
+        return String(text).replace(
+            /<(thinking|think|thought|reasoning|reason)[^>]*>[\s\S]*?<\/\1>/gi,
+            ''
+        ).trim();
+    }
+
     // ============================================================
     // CHAT HISTORY MANAGEMENT
     // ============================================================
 
     function getChatHistory() {
+        // ── Group session: use group-scoped, independent storage ──────────
+        if (groupManager && groupManager.isGroupSession()) {
+            const group = groupManager.getCurrentGroup();
+            const groupId = group ? String(group.id) : null;
+            if (!groupId) return [];
+
+            const untethered = !isTetheredMode();
+
+            // Combine mode: single shared history for the whole group
+            if (groupManager.isCombineMode()) {
+                return groupManager.getCombineHistory(groupId, untethered);
+            }
+
+            // Per-character history, scoped to this groupId
+            const char = getCurrentCharacter();
+            if (!char) return [];
+            const charKey = char.avatar || char.name || 'unknown';
+            const history = groupManager.getGroupChatHistory(groupId, charKey, untethered);
+
+            // Filter out the character's first_mes
+            const firstMes = char.first_mes ? char.first_mes.trim() : null;
+            if (firstMes && history.length > 0) {
+                return history.filter(msg => msg.is_user || (msg.mes || '').trim() !== firstMes);
+            }
+            return history;
+        }
+
+        // ── Solo session: original logic ──────────────────────────────────
         const key = getCharacterKey();
         if (!key) return [];
+
+        let history;
         if (!isTetheredMode()) {
             if (!settings.untetheredHistory[key]) {
                 settings.untetheredHistory[key] = [];
-                // Brand new untethered conversation for this character: reset influences
                 if (untetheredChat) untetheredChat.resetUntetheredChat();
                 saveSettings();
             }
-            return settings.untetheredHistory[key];
+            history = settings.untetheredHistory[key];
+        } else {
+            history = settings.chatHistory[key] || [];
         }
-        return settings.chatHistory[key] || [];
+
+        // Filter out the character's first_mes to prevent it from appearing in EchoText
+        const char = getCurrentCharacter();
+        const firstMes = (char && char.first_mes) ? char.first_mes.trim() : null;
+        if (firstMes && history.length > 0) {
+            history = history.filter(msg =>
+                msg.is_user || (msg.mes || '').trim() !== firstMes
+            );
+        }
+
+        return history;
     }
 
     function saveChatHistory(history) {
+        // ── Group session: write to group-scoped storage ──────────────────
+        if (groupManager && groupManager.isGroupSession()) {
+            const group = groupManager.getCurrentGroup();
+            const groupId = group ? String(group.id) : null;
+            if (!groupId) return;
+
+            const untethered = !isTetheredMode();
+
+            if (groupManager.isCombineMode()) {
+                groupManager.saveCombineHistory(groupId, history, untethered);
+                return;
+            }
+
+            const char = getCurrentCharacter();
+            if (!char) return;
+            const charKey = char.avatar || char.name || 'unknown';
+            groupManager.saveGroupChatHistory(groupId, charKey, history, untethered);
+            if (isTetheredMode()) {
+                syncProactiveStateWithHistory(charKey, history);
+            }
+            return;
+        }
+
+        // ── Solo session: original logic ──────────────────────────────────
         const key = getCharacterKey();
         if (!key) return;
         if (!isTetheredMode()) {
@@ -1083,6 +2176,30 @@
     }
 
     function clearChatHistory() {
+        // ── Group session: clear group-scoped storage ─────────────────────
+        if (groupManager && groupManager.isGroupSession()) {
+            const group = groupManager.getCurrentGroup();
+            const groupId = group ? String(group.id) : null;
+            if (!groupId) return;
+
+            const untethered = !isTetheredMode();
+
+            if (groupManager.isCombineMode()) {
+                groupManager.clearCombineHistory(groupId, untethered);
+                return;
+            }
+
+            const char = getCurrentCharacter();
+            if (!char) return;
+            const charKey = char.avatar || char.name || 'unknown';
+            groupManager.clearGroupChatHistory(groupId, charKey, untethered);
+            clearEmotionState();
+            if (memorySystem) memorySystem.clearInsideJokes(charKey);
+            if (untetheredChat) untetheredChat.resetUntetheredChat();
+            return;
+        }
+
+        // ── Solo session: original logic ──────────────────────────────────
         const key = getCharacterKey();
         if (!key) return;
         if (!isTetheredMode()) {
@@ -1152,11 +2269,19 @@
     // ============================================================
 
     async function requestEchoTextCompletion({ apiMessages, rawPrompt, systemPrompt, prefillPrefix, signal }) {
-        // Helper: strip the pre-fill prefix from the start of the model's response (case-insensitive).
+        // Strip the pre-fill prefix only when the model echoed it as a chat-completion
+        // artefact. Uses exact startsWith (case-insensitive) instead of regex to avoid
+        // accidentally matching legitimate content that happens to begin with similar text.
+        // Guard: only strip when the remainder starts with a letter — if it starts with a
+        // digit, newline, or punctuation the prefix is likely genuine content (e.g. a
+        // scoreboard "CharName: 1 / User: 0") rather than an echoed prefill.
         function stripPrefill(text) {
             if (!prefillPrefix || !text) return text;
-            const escaped = prefillPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            return text.replace(new RegExp('^' + escaped, 'i'), '').trimStart();
+            const prefix = prefillPrefix.toLowerCase();
+            if (!text.toLowerCase().startsWith(prefix)) return text;
+            const remainder = text.slice(prefix.length);
+            if (!/^[a-z]/i.test(remainder.trimStart())) return text;
+            return remainder.trimStart();
         }
 
         if (settings.source === 'profile') {
@@ -1167,9 +2292,8 @@
             if (!profile) throw new Error(`Profile '${settings.preset}' not found.`);
             if (!context.ConnectionManagerRequestService) throw new Error('ConnectionManagerRequestService not available.');
 
-            const maxTokens = context.main?.max_length || 500;
             const response = await context.ConnectionManagerRequestService.sendRequest(
-                profile.id, apiMessages, maxTokens,
+                profile.id, apiMessages, undefined,
                 { stream: false, signal, extractData: true, includePreset: true, includeInstruct: true }
             );
             return stripPrefill(extractTextFromResponse(response));
@@ -1178,12 +2302,11 @@
         if (settings.source === 'ollama') {
             const baseUrl = (settings.ollama_url || 'http://localhost:11434').replace(/\/$/, '');
             if (!settings.ollama_model) throw new Error('No Ollama model selected.');
-            const maxTokens = SillyTavern.getContext().main?.max_length || 500;
 
             const response = await fetch(`${baseUrl}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: settings.ollama_model, messages: apiMessages, stream: false, options: { num_ctx: 4096, num_predict: maxTokens } }),
+                body: JSON.stringify({ model: settings.ollama_model, messages: apiMessages, stream: false }),
                 signal
             });
             if (!response.ok) throw new Error(`Ollama API error: ${response.status}`);
@@ -1195,11 +2318,10 @@
             const baseUrl = (settings.openai_url || 'http://localhost:1234/v1').replace(/\/$/, '');
             const headers = { 'Content-Type': 'application/json' };
             if (settings.openai_key) headers['Authorization'] = `Bearer ${settings.openai_key}`;
-            const maxTokens = SillyTavern.getContext().main?.max_length || 500;
 
             const response = await fetch(`${baseUrl}/chat/completions`, {
                 method: 'POST', headers,
-                body: JSON.stringify({ model: settings.openai_model || 'local-model', messages: apiMessages, temperature: 0.8, max_tokens: maxTokens, stream: false }),
+                body: JSON.stringify({ model: settings.openai_model || 'local-model', messages: apiMessages, temperature: 0.8, stream: false }),
                 signal
             });
             if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -1221,40 +2343,61 @@
         ]);
     }
 
-    function buildApiMessagesFromHistory(history, extraSystemMessages = []) {
-        const systemPrompt = buildSystemPrompt();
-        const apiMessages = [{ role: 'system', content: systemPrompt }];
-
-        if (isTetheredMode() && settings.ctxSTMessages === true) {
-            const stPriorityMessages = getSTChatMessages(Math.max(12, settings.ctxSTMessageCount || 10));
-            if (stPriorityMessages) {
-                apiMessages.push({
-                    role: 'system',
-                    content: `Main SillyTavern chat continuity (high priority):\n${stPriorityMessages}\n\nStay consistent with this ongoing story unless the user explicitly changes direction.`
-                });
-            }
+    /**
+     * Resolves the text to use for a history message when building API context.
+     *
+     * For assistant turns where image generation ran but no text reply was included
+     * (mes is empty/whitespace), the AI would otherwise see a blank response to the
+     * user's photo request — making sophisticated models (e.g. Claude Thinking, GLM-5)
+     * interpret the request as "unfulfilled" and fixate on it in subsequent turns.
+     *
+     * This function synthesises a brief, natural acknowledgement stub for those turns
+     * so the conversational loop is always closed in the model's context window.
+     * The saved history is never modified — only the text sent to the API changes.
+     *
+     * @param {object} msg - a raw history message object
+     * @returns {string} the text to inject into the API context for this turn
+     */
+    function resolveHistoryMessageText(msg) {
+        const rawText = stripThinkingTags(msg.mes || '');
+        if (!msg.is_user && !rawText.trim() && msg.imageAttachment?.status === 'ready') {
+            // A silent image turn — give the model a compact, in-character stub so it
+            // knows the action was completed.  The exact phrasing is deliberately terse
+            // to avoid bloating the context with fabricated prose.
+            return '*[shared a photo]*';
         }
+        return rawText;
+    }
+
+    async function buildApiMessagesFromHistory(history, extraSystemMessages = [], targetCharOverride = null) {
+        const systemPrompt = await buildSystemPrompt(targetCharOverride);
+        const apiMessages = [{ role: 'system', content: systemPrompt }];
 
         for (const msg of extraSystemMessages) {
             if (msg) apiMessages.push({ role: 'system', content: msg });
         }
 
         history.forEach(msg => {
-            apiMessages.push({ role: msg.is_user ? 'user' : 'assistant', content: msg.mes });
+            // Strip thinking/reasoning tags from history messages before sending to context.
+            // This prevents internal model reasoning blocks from inflating token budgets.
+            // resolveHistoryMessageText also fills in a natural stub for silent image turns
+            // so the model never sees an empty assistant response to a photo request.
+            const contextText = resolveHistoryMessageText(msg);
+            apiMessages.push({ role: msg.is_user ? 'user' : 'assistant', content: contextText });
         });
 
         // --- Layer 3: Pre-fill assistant turn (anti-refusal, chat-completion backends only) ---
         // Planting the assistant prefix forces the model to continue in-character rather than
         // starting fresh with a potential refusal. The prefix is stripped in requestEchoTextCompletion.
         let prefillPrefix = '';
-        if (settings.antiRefusal !== false && settings.source !== 'default') {
+        if (settings.antiRefusal === true && settings.source !== 'default') {
             prefillPrefix = `${getCharacterName()}: `;
             apiMessages.push({ role: 'assistant', content: prefillPrefix });
         }
 
         let rawPrompt = '';
         history.forEach(msg => {
-            rawPrompt += `${msg.is_user ? getUserName() : getCharacterName()}: ${msg.mes}\n`;
+            rawPrompt += `${msg.is_user ? getUserName() : getCharacterName()}: ${resolveHistoryMessageText(msg)}\n`;
         });
         rawPrompt += `${getCharacterName()}:`;
 
@@ -1263,10 +2406,28 @@
 
     /**
      * Like buildApiMessagesFromHistory but scoped to an arbitrary char object.
-     * Used by the proactive scheduler for non-active group members.
+     * Used by generateEchoTextCombined and the proactive scheduler.
+     *
+     * In Combined Group Mode the request is built by buildCombinedGroupApiMessages,
+     * which separates group framing, attributed history, and character-card injection
+     * into distinct, correctly-ordered message slots instead of one system-prompt blob.
      */
-    function buildApiMessagesFromHistoryForChar(history, extraSystemMessages = [], char) {
-        const systemPrompt = buildSystemPrompt();
+    async function buildApiMessagesFromHistoryForChar(history, extraSystemMessages = [], char) {
+        // ── Combined group mode: use the dedicated structured builder ─────────
+        if (isCombinedGroupMode()) {
+            const result = await buildCombinedGroupApiMessages(history, char);
+            // Splice any extra system messages in after the first [system] block
+            if (extraSystemMessages && extraSystemMessages.length) {
+                const extras = extraSystemMessages
+                    .filter(Boolean)
+                    .map(m => ({ role: 'system', content: m }));
+                result.apiMessages.splice(1, 0, ...extras);
+            }
+            return result;
+        }
+
+        // ── Solo / individual group-member mode ───────────────────────────────
+        const systemPrompt = await buildSystemPrompt(char);
         const apiMessages = [{ role: 'system', content: systemPrompt }];
 
         for (const msg of extraSystemMessages) {
@@ -1274,14 +2435,17 @@
         }
 
         history.forEach(msg => {
-            apiMessages.push({ role: msg.is_user ? 'user' : 'assistant', content: msg.mes });
+            // Apply the same silent-image-turn resolution used in buildApiMessagesFromHistory
+            // so group-member context windows also see a closed loop for image turns.
+            const contextText = resolveHistoryMessageText(msg);
+            apiMessages.push({ role: msg.is_user ? 'user' : 'assistant', content: contextText });
         });
 
         const charName = (char && char.name) || getCharacterName();
         const userName = getUserName();
         let rawPrompt = '';
         history.forEach(msg => {
-            rawPrompt += `${msg.is_user ? userName : charName}: ${msg.mes}\n`;
+            rawPrompt += `${msg.is_user ? userName : charName}: ${resolveHistoryMessageText(msg)}\n`;
         });
         rawPrompt += `${charName}:`;
 
@@ -1304,8 +2468,22 @@
         let workingHistory = Array.isArray(history) ? [...history] : [];
         const latestUserIdx = findLastUserMessageIndex(workingHistory);
         const timing = getEmotionReplyTimingModel();
+        const latestUserMessage = Array.isArray(history) && history.length ? history[history.length - 1] : null;
 
-        const { apiMessages, rawPrompt, systemPrompt } = buildApiMessagesFromHistory(history);
+        // Pre-detect image requests BEFORE building API messages so the triggering
+        // user message can be hidden from the AI character. This prevents the character
+        // from awkwardly commenting on "send me a photo" when an image silently appears.
+        let pendingImageDetection = null;
+        let apiHistory = history;
+        if (imageGeneration && latestUserMessage?.is_user) {
+            pendingImageDetection = imageGeneration.detectImageRequest(latestUserMessage.mes, history);
+            if (pendingImageDetection.triggered) {
+                // Strip the image-triggering message — the AI never sees it
+                apiHistory = history.slice(0, -1);
+            }
+        }
+
+        const { apiMessages, rawPrompt, systemPrompt } = await buildApiMessagesFromHistory(apiHistory);
 
         let result = '';
 
@@ -1329,38 +2507,88 @@
             }
 
             await sleepWithAbort(timing.typingLeadMs, abortController.signal);
-            setTypingIndicatorVisible(true);
-            await sleepWithAbort(timing.replyDelayMs, abortController.signal);
-            result = await requestEchoTextCompletion({ apiMessages, rawPrompt, systemPrompt, signal: abortController.signal });
+            
+            const bypassTextGeneration = (imageGeneration && latestUserMessage?.is_user && pendingImageDetection?.triggered && settings.imageGenerationIncludeTextReply === false);
 
-            if (result && result.trim()) {
-                const trimmedResult = result.trim();
-                // Process character's response for emotion analysis
-                processMessageEmotion(trimmedResult, false);
+            if (!bypassTextGeneration) {
+                setTypingIndicatorVisible(true);
+                await sleepWithAbort(timing.replyDelayMs, abortController.signal);
+                result = await requestEchoTextCompletion({ apiMessages, rawPrompt, systemPrompt, signal: abortController.signal });
+            }
 
-                // Apply dynamic emotion panel tint if enabled
-                if (settings.dynamicEmotionPanel) {
-                    try {
-                        const charKey = getCharacterKey();
-                        const emotionState = settings.emotionState && charKey ? settings.emotionState[charKey] : null;
-                        const dominantEmotion = emotionState?.dominant || emotionState?.current || 'neutral';
-                        applyEmotionPanelTint(dominantEmotion);
-                    } catch (e) { /* ignore */ }
+            let imageReply = null;
+            if (imageGeneration && latestUserMessage?.is_user) {
+                // Reuse the pre-detection result — no need to call detectImageRequest again
+                if (pendingImageDetection?.triggered) {
+                    // Replace typing indicator with the dedicated image-generating indicator
+                    setTypingIndicatorVisible(false);
+                    setImageGeneratingIndicatorVisible(true);
+                }
+                imageReply = await imageGeneration.maybeGenerateImageReply(latestUserMessage.mes, history, abortController.signal);
+                setImageGeneratingIndicatorVisible(false);
+            }
+
+            const hasTextResponse = result && result.trim();
+            if (hasTextResponse || imageReply?.triggered) {
+                const trimmedResult = hasTextResponse ? cleanGeneratedResponse(result) : '';
+                
+                if (hasTextResponse) {
+                    // Process character's response for emotion analysis
+                    processMessageEmotion(trimmedResult, false);
                 }
 
-                const newHistory = [...workingHistory, { is_user: false, mes: trimmedResult, send_date: Date.now() }];
+
+
+                const charReply = {
+                    is_user: false,
+                    mes: trimmedResult,
+                    send_date: Date.now()
+                };
+
+                if (imageReply?.triggered) {
+                    charReply.imageAttachment = imageReply.result?.ok
+                        ? {
+                            status: 'ready',
+                            type: 'image',
+                            url: imageReply.result.url,
+                            mimeType: imageReply.result.mimeType || 'image/png',
+                            prompt: imageReply.result.prompt || imageReply.promptPayload?.prompt || '',
+                            triggerType: imageReply.detection?.type || 'direct_request'
+                        }
+                        : {
+                            status: 'error',
+                            type: 'image',
+                            error: imageReply.result?.error || 'Sorry, I could not generate an image right now.',
+                            triggerType: imageReply.detection?.type || 'direct_request'
+                        };
+
+                    if (imageReply.result?.ok && gallery) {
+                        try {
+                            gallery.addImage({
+                                charKey: getCharacterKey(),
+                                charName: getCharacterName(),
+                                avatarUrl: getAvatarUrlForCharacter(getCurrentCharacter()),
+                                url: imageReply.result.url,
+                                mimeType: imageReply.result.mimeType || 'image/png',
+                                prompt: imageReply.result.prompt || imageReply.promptPayload?.prompt || '',
+                                triggerType: imageReply.detection?.type || 'direct_request',
+                                createdAt: Date.now()
+                            });
+                        } catch (galleryErr) {
+                            warn('Failed to save generated image to gallery:', galleryErr);
+                        }
+                    }
+
+                    if (settings.imageGenerationIncludeTextReply === false && imageReply.result?.ok) {
+                        charReply.mes = '';
+                    }
+                }
+
+                const newHistory = [...workingHistory, charReply];
                 saveChatHistory(newHistory);
                 if (isTetheredMode()) {
                     markProactiveCharacterActivity(getCharacterKey(), false, 'reply');
-                    // Extract inside jokes from emotionally significant messages
-                    try {
-                        if (memorySystem) {
-                            const charKey = getCharacterKey();
-                            const emotionState = settings.emotionState && charKey ? settings.emotionState[charKey] : null;
-                            memorySystem.extractMemorableCallback(newHistory, emotionState);
-                            memorySystem.incrementTurn();
-                        }
-                    } catch (e) { /* ignore */ }
+                    try { if (memorySystem) memorySystem.incrementTurn(); } catch (e) { /* ignore */ }
                 }
                 renderMessages(newHistory);
                 setFabUnreadIndicator(panelOpen ? false : true);
@@ -1375,6 +2603,432 @@
             }
         } finally {
             setTypingIndicatorVisible(false);
+            setImageGeneratingIndicatorVisible(false);
+            isGenerating = false;
+            abortController = null;
+            updateSendButton(false);
+        }
+    }
+
+    /**
+     * Called when combine mode is toggled on/off in the group bar.
+     * Updates the panel header, placeholder, status row, and history display.
+     * @param {boolean} isActive - true if combine mode was just switched ON
+     */
+    function onCombineModeToggle(isActive) {
+        if (isActive) {
+            // Show combined header listing all member names
+            const members = groupManager ? groupManager.getGroupMembers() : [];
+            const charNames = members.map(c => c.name).join(', ');
+            jQuery('#et-panel-drag-handle').removeClass('et-panel-header-no-char');
+            jQuery('#et-char-name').html(`Group: ${escapeHtml(charNames)}<i class="fa-solid fa-chevron-down et-char-name-caret" aria-hidden="true"></i>`);
+            jQuery('#et-input').attr('placeholder', `Message all: ${charNames}...`);
+        } else {
+            // Restore to the currently active individual character
+            applySelectedCharacterToPanel();
+        }
+        // Emotion indicator always hidden in group session
+        jQuery('#et-emotion-indicator').addClass('et-emotion-indicator-hidden');
+        updatePanelStatusRow();
+        // Load and render the appropriate history (combine vs individual)
+        const history = getChatHistory();
+        renderMessages(history);
+    }
+
+    /**
+     * Builds API messages for a manual character nudge in Combined Group Mode.
+     *
+     * Unlike buildCombinedGroupApiMessages (which splits history at the last user
+     * message and drops everything after it), this function feeds the ENTIRE history
+     * — including character responses that have already happened since the last user
+     * message — as attributed context turns.  The stance hint becomes the generation
+     * cue in the final user slot, so the model always sees what everyone has said.
+     *
+     * Layout:
+     *   [system]           Shared group prompt + anti-refusal framing
+     *   [user / assistant] Full attributed history (user msgs + all char replies)
+     *   [user]             User persona + character card + stance hint + verbosity
+     *
+     * @param {Array}  history    - full combine history at the moment of the nudge
+     * @param {object} char       - the character whose turn it is to respond
+     * @param {string} stanceHint - randomly chosen nudge instruction
+     * @returns {{ apiMessages, rawPrompt, systemPrompt }}
+     */
+    async function buildManualNudgeApiMessages(history, char, stanceHint) {
+        const charName  = char?.name || 'Character';
+        const userName  = getUserName();
+        const allHistory = Array.isArray(history) ? history : [];
+
+        // ── 1. Shared system prompt ───────────────────────────────────────────
+        const systemPrompt = buildGroupSharedSystemPrompt();
+
+        // ── 2. Full history as attributed turns (no splitting) ────────────────
+        // Every message is included so the model can see all prior character
+        // replies, even those that came after the last user message.
+        const historyMessages = allHistory.map(msg => {
+            if (msg.is_user) {
+                return { role: 'user', content: stripThinkingTags(msg.mes || '') };
+            }
+            const speaker = msg.charName || charName;
+            return { role: 'assistant', content: `${speaker}: ${stripThinkingTags(msg.mes || '')}` };
+        });
+
+        // ── 3. Final user turn: persona + character card + stance + verbosity ──
+        // There is no new user message here — the character is responding
+        // spontaneously.  The stance hint is the only driver of the new reply.
+        const finalUserParts = [];
+
+        // User persona description
+        try {
+            const powerUser = SillyTavern.getContext().powerUserSettings || {};
+            const personaDesc = (powerUser.persona_description || '').trim();
+            if (personaDesc) {
+                finalUserParts.push(`${userName}'s persona: ${expandTimeDateMacros(replaceMacros(personaDesc))}`);
+            }
+        } catch (e) { /* ignore */ }
+
+        // Character card — wrapped in XML so models treat it as reference data, not output
+        const charDescription = (char?.description || char?.data?.description || '').trim();
+        const charPersonality  = (char?.personality  || char?.data?.personality  || '').trim();
+        const charCardParts = [];
+        if (charDescription) charCardParts.push(`${charName}'s description: ${expandTimeDateMacros(replaceMacros(charDescription))}`);
+        if (charPersonality)  charCardParts.push(`${charName}'s personality: ${expandTimeDateMacros(replaceMacros(charPersonality))}`);
+        if (charCardParts.length > 0) finalUserParts.push(`<character_reference>\n${charCardParts.join('\n\n')}\n</character_reference>`);
+
+        const charKey = char?.avatar || char?.name || '';
+        const verbosity = charKey && settings.verbosityByCharacter ? settings.verbosityByCharacter[charKey] : null;
+
+        // Stance hint — the randomly chosen nudge instruction that tells the model
+        // how to engage with the live conversation (react to others, address the user,
+        // etc.).  This is the primary driver that prevents the character from
+        // repeating their opening reply verbatim.
+        if (stanceHint) finalUserParts.push(stanceHint);
+
+        // Generation cue — mirrors what buildCombinedGroupApiMessages injects so the
+        // model knows exactly whose turn it is and that it must not echo prior replies.
+        const charCueTemplate =
+            (settings.promptGroupCharacterCue != null && settings.promptGroupCharacterCue !== '')
+                ? settings.promptGroupCharacterCue
+                : (window.EchoTextConfig?.defaultSettings?.promptGroupCharacterCue || '');
+        const charCue = expandTimeDateMacros(replaceMacros(charCueTemplate));
+        if (charCue) finalUserParts.push(charCue);
+
+        finalUserParts.push(getVerbosityPrompt(verbosity));
+
+        const finalUserContent = finalUserParts.filter(Boolean).join('\n\n');
+
+        const apiMessages = [
+            { role: 'system', content: systemPrompt },
+            ...historyMessages,
+            { role: 'user', content: finalUserContent }
+        ];
+
+        // rawPrompt for non-chat backends (KoboldAI, text-completion proxies)
+        let rawPrompt = '';
+        allHistory.forEach(msg => {
+            const speaker = msg.is_user ? userName : (msg.charName || charName);
+            rawPrompt += `${speaker}: ${msg.mes}\n`;
+        });
+        rawPrompt += `${charName}:`;
+
+        return { apiMessages, rawPrompt, systemPrompt };
+    }
+
+    /**
+     * Called when the user clicks a character button in Combined Group Mode.
+     * Triggers a one-off generation request for that specific character, appended
+     * to the current shared combine history.
+     *
+     * The character randomly chooses one of three stances (weighted equally):
+     *   1. Address the chat's general context / latest user message
+     *   2. React to or respond to the other group members' most recent lines
+     *   3. Speak directly to the user
+     *
+     * This is injected as an extra system instruction into buildCombinedGroupApiMessages
+     * so the character card, history, and group framing are all preserved.
+     *
+     * @param {string} charKey  - avatar/name key of the triggered character
+     * @param {object} charObj  - character object (may be null if lookup failed)
+     */
+    async function triggerManualCombineChar(charKey, charObj) {
+        if (isGenerating) {
+            toastr.info('Please wait for the current response to finish before nudging a character.');
+            return;
+        }
+        if (!groupManager) return;
+
+        const group = groupManager.getCurrentGroup();
+        const groupId = group ? String(group.id) : null;
+        if (!groupId) return;
+
+        const targetChar = charObj || groupManager.getGroupMemberByKey(charKey);
+        if (!targetChar) {
+            error('triggerManualCombineChar: could not resolve char for key', charKey);
+            return;
+        }
+
+        const history = getChatHistory();
+        const charName = targetChar.name || 'Character';
+
+        // Pick a random stance to guide the character's response.
+        // Each hint references the full conversation — the model has the complete
+        // attributed history in context, so "what was just said" is accurate.
+        const otherMembers = groupManager.getGroupMembers()
+            .filter(c => (c.avatar || c.name) !== charKey)
+            .map(c => c.name)
+            .filter(Boolean);
+        const othersLabel = otherMembers.length
+            ? otherMembers.join(' and ')
+            : 'the others';
+        const stances = [
+            `You are now choosing to speak up in the group conversation. Look at everything that's been said — by ${getUserName()} and by ${othersLabel} — and respond in a way that feels natural given the full thread. React, continue a thought, or bring something new in.`,
+            `You are chiming in. Read what ${othersLabel} most recently said and respond directly to one of them — agree, push back, tease, ask a follow-up, or riff on their point. Make it feel like a real group conversation, not a reply to the original message.`,
+            `You are speaking up unprompted. Address ${getUserName()} directly, drawing on something from the conversation so far — a question, a reaction, an observation, or a follow-up to something they said. Keep it conversational.`
+        ];
+        const stanceHint = stances[Math.floor(Math.random() * stances.length)];
+
+        isGenerating = true;
+        abortController = new AbortController();
+        updateSendButton(true);
+
+        const prevActiveKey = groupManager.getActiveCharKey();
+        groupManager.setActiveCharKey(charKey);
+
+        const timing = { typingLeadMs: 180, replyDelayMs: 320 };
+
+        try {
+            setTypingIndicatorVisible(true);
+            await sleepWithAbort(timing.typingLeadMs, abortController.signal);
+            await sleepWithAbort(timing.replyDelayMs, abortController.signal);
+
+            // Use the dedicated nudge builder so the full history — including
+            // character replies that already happened after the last user message —
+            // is present as context.  buildApiMessagesFromHistoryForChar would
+            // silently drop those post-user-message turns.
+            const { apiMessages, rawPrompt, systemPrompt } =
+                await buildManualNudgeApiMessages(history, targetChar, stanceHint);
+
+            const result = await requestEchoTextCompletion({
+                apiMessages, rawPrompt, systemPrompt,
+                signal: abortController.signal
+            });
+
+            setTypingIndicatorVisible(false);
+
+            if (result && result.trim()) {
+                const charReply = {
+                    is_user: false,
+                    mes: result.trim(),
+                    charName: charName,
+                    charKey: charKey,
+                    send_date: Date.now()
+                };
+                const newHistory = [...history, charReply];
+                groupManager.saveCombineHistory(groupId, newHistory, !isTetheredMode());
+                renderMessages(newHistory);
+                setFabUnreadIndicator(panelOpen ? false : true);
+            }
+        } catch (err) {
+            if (err.name === 'AbortError' || (abortController && abortController.signal.aborted)) {
+                log('Manual combine nudge cancelled');
+            } else {
+                error('Manual combine nudge failed:', err);
+                toastr.error(`EchoText: ${err.message}`);
+            }
+        } finally {
+            setTypingIndicatorVisible(false);
+            groupManager.setActiveCharKey(prevActiveKey);
+            isGenerating = false;
+            abortController = null;
+            updateSendButton(false);
+        }
+    }
+
+    /**
+     * Combined response generation: every group member replies in sequence.
+     * Each response is stored in the group's shared combine history with
+     * charName + charKey fields for per-bubble attribution in renderMessages.
+     * @param {Array} history - current combine history (including the new user message)
+     */
+    async function generateEchoTextCombined(history) {
+        if (isGenerating) return;
+        if (!groupManager) return;
+
+        const members = groupManager.getGroupMembers();
+        if (!members.length) return;
+
+        const group = groupManager.getCurrentGroup();
+        const groupId = group ? String(group.id) : null;
+        if (!groupId) return;
+
+        isGenerating = true;
+        abortController = new AbortController();
+        updateSendButton(true);
+
+        let workingHistory = Array.isArray(history) ? [...history] : [];
+
+        // Mark the latest user message as delivered / read
+        const latestUserIdx = findLastUserMessageIndex(workingHistory);
+        const timing = { deliveredDelayMs: 350, readDelayMs: 850, ghostDelayMs: 0, typingLeadMs: 250, replyDelayMs: 450 };
+
+        try {
+            if (latestUserIdx >= 0) {
+                await sleepWithAbort(timing.deliveredDelayMs, abortController.signal);
+                setUserMessageReceiptState(workingHistory, latestUserIdx, 'delivered', 'Delivered to group');
+                groupManager.saveCombineHistory(groupId, workingHistory, !isTetheredMode());
+
+                await sleepWithAbort(timing.readDelayMs, abortController.signal);
+                setUserMessageReceiptState(workingHistory, latestUserIdx, 'read', 'Read by group');
+                groupManager.saveCombineHistory(groupId, workingHistory, !isTetheredMode());
+            }
+
+            // Generate a reply from each group member in order
+            for (const char of members) {
+                if (abortController.signal.aborted) break;
+
+                const charKey = char.avatar || char.name;
+                let prevActiveKey = groupManager.getActiveCharKey();
+
+                // Temporarily set active key so buildSystemPrompt uses the right verbosity
+                groupManager.setActiveCharKey(charKey);
+
+                try {
+                    setTypingIndicatorVisible(true);
+                    await sleepWithAbort(timing.typingLeadMs, abortController.signal);
+                    await sleepWithAbort(timing.replyDelayMs, abortController.signal);
+
+                    const { apiMessages, rawPrompt, systemPrompt } =
+                        await buildApiMessagesFromHistoryForChar(workingHistory, [], char);
+
+                    const result = await requestEchoTextCompletion({
+                        apiMessages, rawPrompt, systemPrompt,
+                        signal: abortController.signal
+                    });
+
+                    setTypingIndicatorVisible(false);
+
+                    if (result && result.trim()) {
+                        const charReply = {
+                            is_user: false,
+                            mes: cleanGeneratedResponse(result),
+                            charName: char.name,
+                            charKey: charKey,
+                            send_date: Date.now()
+                        };
+                        workingHistory = [...workingHistory, charReply];
+                        groupManager.saveCombineHistory(groupId, workingHistory, !isTetheredMode());
+                        renderMessages(workingHistory);
+                        setFabUnreadIndicator(panelOpen ? false : true);
+                    }
+                } finally {
+                    setTypingIndicatorVisible(false);
+                    groupManager.setActiveCharKey(prevActiveKey);
+                }
+
+                // Brief pause between characters so responses feel staggered
+                if (!abortController.signal.aborted && char !== members[members.length - 1]) {
+                    await sleepWithAbort(350, abortController.signal);
+                }
+            }
+
+        } catch (err) {
+            if (err.name === 'AbortError' || (abortController && abortController.signal.aborted)) {
+                log('Combined generation cancelled');
+            } else {
+                error('Combined generation failed:', err);
+                toastr.error(`EchoText: ${err.message}`);
+            }
+        } finally {
+            setTypingIndicatorVisible(false);
+            isGenerating = false;
+            abortController = null;
+            updateSendButton(false);
+        }
+    }
+
+    /**
+     * Regenerate a single character's response in Combined Group Mode.
+     *
+     * Unlike generateEchoTextCombined (which iterates every member), this only
+     * regenerates `targetCharKey`.  It receives the history split into two parts:
+     *
+     *   historyBefore — everything up to (not including) the target message.
+     *                   Used as the generation context so the model sees the right
+     *                   conversation up to that point.
+     *   historyAfter  — messages that came AFTER the target message (e.g. Iris's
+     *                   response when regenerating Joi's).  These are preserved
+     *                   verbatim and stitched back in after the new reply.
+     *
+     * Final saved history: [...historyBefore, newReply, ...historyAfter]
+     *
+     * @param {Array}  historyBefore  - history up to (excl.) the message being regenerated
+     * @param {Array}  historyAfter   - history after the message being regenerated
+     * @param {string} targetCharKey  - avatar/name key of the character to regenerate
+     */
+    async function generateEchoTextCombinedForChar(historyBefore, historyAfter, targetCharKey) {
+        if (isGenerating) return;
+        if (!groupManager) return;
+
+        const group = groupManager.getCurrentGroup();
+        const groupId = group ? String(group.id) : null;
+        if (!groupId) return;
+
+        const targetChar = groupManager.getGroupMemberByKey(targetCharKey);
+        if (!targetChar) {
+            error('generateEchoTextCombinedForChar: could not resolve char for key', targetCharKey);
+            return;
+        }
+
+        isGenerating = true;
+        abortController = new AbortController();
+        updateSendButton(true);
+
+        const prevActiveKey = groupManager.getActiveCharKey();
+        // Temporarily point active key at the target so verbosity/system prompt are scoped correctly
+        groupManager.setActiveCharKey(targetCharKey);
+
+        const timing = { typingLeadMs: 250, replyDelayMs: 450 };
+
+        try {
+            setTypingIndicatorVisible(true);
+            await sleepWithAbort(timing.typingLeadMs, abortController.signal);
+            await sleepWithAbort(timing.replyDelayMs, abortController.signal);
+
+            // Build the API messages using only the pre-target history as context
+            const { apiMessages, rawPrompt, systemPrompt } =
+                await buildApiMessagesFromHistoryForChar(historyBefore, [], targetChar);
+
+            const result = await requestEchoTextCompletion({
+                apiMessages, rawPrompt, systemPrompt,
+                signal: abortController.signal
+            });
+
+            setTypingIndicatorVisible(false);
+
+            if (result && result.trim()) {
+                const charReply = {
+                    is_user: false,
+                    mes: cleanGeneratedResponse(result),
+                    charName: targetChar.name,
+                    charKey: targetCharKey,
+                    send_date: Date.now()
+                };
+                // Stitch: preserve everything before, insert new reply, preserve everything after
+                const finalHistory = [...historyBefore, charReply, ...historyAfter];
+                groupManager.saveCombineHistory(groupId, finalHistory, !isTetheredMode());
+                renderMessages(finalHistory);
+                setFabUnreadIndicator(panelOpen ? false : true);
+            }
+        } catch (err) {
+            if (err.name === 'AbortError' || (abortController && abortController.signal.aborted)) {
+                log('Combined single-char regen cancelled');
+            } else {
+                error('Combined single-char regen failed:', err);
+                toastr.error(`EchoText: ${err.message}`);
+            }
+        } finally {
+            setTypingIndicatorVisible(false);
+            groupManager.setActiveCharKey(prevActiveKey);
             isGenerating = false;
             abortController = null;
             updateSendButton(false);
@@ -1439,11 +3093,69 @@
                 inner.append(el);
                 if (settings.autoScroll) {
                     const messagesEl = document.getElementById('et-messages');
-                    if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+                    if (messagesEl) {
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                        inner.find('#et-typing-indicator-msg img').on('load', function() {
+                            if (settings.autoScroll) {
+                                messagesEl.scrollTop = messagesEl.scrollHeight;
+                            }
+                        });
+                    }
                 }
             }
         } else {
             inner.find('#et-typing-indicator-msg').remove();
+        }
+    }
+
+    // ── Image generating indicator ────────────────────────────────────────────
+    // Shown INSTEAD of the typing indicator while SD image generation is in
+    // progress. Distinct appearance: camera icon + aperture-spin ring + label.
+    function setImageGeneratingIndicatorVisible(visible) {
+        if (!panelOpen) return;
+        const inner = jQuery('#et-messages-inner');
+        if (!inner.length) return;
+
+        if (visible) {
+            if (!inner.find('#et-image-gen-indicator-msg').length) {
+                const charName = getCharacterName();
+                const avatarHtml = settings.showAvatar !== false
+                    ? buildAvatarHtml(charName, 'et-bubble-avatar', '', true)
+                    : '';
+                const el = jQuery(`
+                    <div class="et-message et-message-char et-message-typing" id="et-image-gen-indicator-msg">
+                        <div class="et-message-body">
+                            <div class="et-bubble et-bubble-char et-image-gen-bubble" title="Generating image…">
+                                <div class="et-image-gen-indicator">
+                                    <div class="et-image-gen-ring">
+                                        <svg viewBox="0 0 36 36" class="et-image-gen-svg">
+                                            <circle class="et-image-gen-track" cx="18" cy="18" r="14" fill="none" stroke-width="2.5"/>
+                                            <circle class="et-image-gen-arc" cx="18" cy="18" r="14" fill="none" stroke-width="2.5" stroke-dasharray="22 66" stroke-linecap="round"/>
+                                        </svg>
+                                        <i class="fa-solid fa-camera et-image-gen-icon"></i>
+                                    </div>
+                                    <span class="et-image-gen-label">Generating image…</span>
+                                </div>
+                                ${avatarHtml}
+                            </div>
+                        </div>
+                    </div>
+                `);
+                inner.append(el);
+                if (settings.autoScroll) {
+                    const messagesEl = document.getElementById('et-messages');
+                    if (messagesEl) {
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                        inner.find('#et-image-gen-indicator-msg img').on('load', function() {
+                            if (settings.autoScroll) {
+                                messagesEl.scrollTop = messagesEl.scrollHeight;
+                            }
+                        });
+                    }
+                }
+            }
+        } else {
+            inner.find('#et-image-gen-indicator-msg').remove();
         }
     }
 
@@ -1592,12 +3304,18 @@
         }
     }
 
+    async function fetchMultimodalModels() {
+        jQuery('#et_multimodal_model_status').text('Model discovery is now managed by the SillyTavern Image Generation plugin.').css('color', '#a8ffaa');
+        jQuery('#et_multimodal_model_status_panel').text('Model discovery is now managed by the SillyTavern Image Generation plugin.').css('color', '#a8ffaa');
+    }
+
     // ============================================================
     // FLOATING ACTION BUTTON (FAB)
     // ============================================================
 
     function buildFabHtml() {
-        return `<div id="et-fab" title="Open EchoText"><i class="fa-solid ${settings.fabIcon}"></i></div>`;
+        const icon = settings.fabIcon || 'fa-message';
+        return `<div id="et-fab" title="Open EchoText"><i class="fa-solid ${icon}"></i></div>`;
     }
 
     function positionFab() {
@@ -1605,23 +3323,39 @@
         if (!fab.length) return;
 
         const size = settings.fabSize;
-        const edge = settings.fabEdge;
-        const pos = settings.fabPosition;
-        const margin = 16;
-
         fab.css({ width: size + 'px', height: size + 'px' });
 
+        // 24 px on mobile clears the home indicator; 16 px on desktop.
+        const margin = isMobileDevice() ? 24 : 16;
+        const vw = getViewportWidth();
+        const vh = getViewportHeight();
+
+        // Free-floating position (not snapped to any edge).
+        if (settings.fabFreeX != null && settings.fabFreeY != null) {
+            const left = Math.max(margin, Math.min(vw - size - margin, (settings.fabFreeX / 100) * vw));
+            const top  = Math.max(margin, Math.min(vh - size - margin, (settings.fabFreeY / 100) * vh));
+            fab.css({ left: left + 'px', top: top + 'px', right: '', bottom: '' });
+            return;
+        }
+
+        // On mobile the FAB is position:absolute inside the fixed portal, so
+        // left/top/right/bottom are relative to the portal's top-left (= viewport 0,0).
+        // We run the same edge-snap logic as desktop but with a larger margin that
+        // clears the iOS home indicator and notch safe areas.
+        const edge = settings.fabEdge || 'right';
+        const pos  = settings.fabPosition != null ? settings.fabPosition : 80;
+
         if (edge === 'right') {
-            const top = Math.max(margin, Math.min(window.innerHeight - size - margin, (pos / 100) * window.innerHeight));
+            const top = Math.max(margin, Math.min(vh - size - margin, (pos / 100) * vh));
             fab.css({ right: margin + 'px', bottom: '', left: '', top: top + 'px' });
         } else if (edge === 'left') {
-            const top = Math.max(margin, Math.min(window.innerHeight - size - margin, (pos / 100) * window.innerHeight));
+            const top = Math.max(margin, Math.min(vh - size - margin, (pos / 100) * vh));
             fab.css({ left: margin + 'px', right: '', bottom: '', top: top + 'px' });
         } else if (edge === 'bottom') {
-            const left = Math.max(margin, Math.min(window.innerWidth - size - margin, (pos / 100) * window.innerWidth));
+            const left = Math.max(margin, Math.min(vw - size - margin, (pos / 100) * vw));
             fab.css({ bottom: margin + 'px', top: '', left: left + 'px', right: '' });
         } else if (edge === 'top') {
-            const left = Math.max(margin, Math.min(window.innerWidth - size - margin, (pos / 100) * window.innerWidth));
+            const left = Math.max(margin, Math.min(vw - size - margin, (pos / 100) * vw));
             fab.css({ top: margin + 'px', bottom: '', left: left + 'px', right: '' });
         }
     }
@@ -1653,8 +3387,8 @@
             if (Math.abs(dx) > 5 || Math.abs(dy) > 5) { hasMoved = true; fabDragging = true; }
             if (!hasMoved) return;
             const size = fab.offsetWidth;
-            const newLeft = Math.max(0, Math.min(window.innerWidth - size, startLeft + dx));
-            const newTop = Math.max(0, Math.min(window.innerHeight - size, startTop + dy));
+            const newLeft = Math.max(0, Math.min(getViewportWidth() - size, startLeft + dx));
+            const newTop = Math.max(0, Math.min(getViewportHeight() - size, startTop + dy));
             fab.style.left = newLeft + 'px';
             fab.style.top = newTop + 'px';
             fab.style.right = '';
@@ -1690,9 +3424,13 @@
         }, { passive: true });
 
         fab.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            // Must be non-passive to call preventDefault(),
+            // which stops the page from scrolling while the FAB is being dragged.
+            e.preventDefault();
             const t = e.touches[0];
             onMove(t.clientX, t.clientY);
-        }, { passive: true });
+        }, { passive: false });
 
         fab.addEventListener('touchend', () => { onEnd(); });
     }
@@ -1703,23 +3441,53 @@
 
         const rect = fab.getBoundingClientRect();
         const size = fab.offsetWidth;
-        const margin = 16;
+        // Match the margin used in positionFab(): 24 px on mobile (clears home
+        // indicator), 16 px on desktop.
+        const margin = isMobileDevice() ? 24 : 16;
         const cx = rect.left + size / 2;
         const cy = rect.top + size / 2;
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
+        // Use visual viewport so snap calculations are correct on iOS
+        // (window.innerWidth/Height may include collapsed browser chrome).
+        const vw = getViewportWidth();
+        const vh = getViewportHeight();
 
-        const distLeft = cx;
-        const distRight = vw - cx;
-        const distTop = cy;
+        // Only snap to an edge when the FAB center is within 15% of the viewport
+        // edge in that axis.  Outside that zone the button floats freely wherever
+        // the user dropped it.
+        const SNAP_ZONE = 0.07;
+        const nearLeft   = cx < SNAP_ZONE * vw;
+        const nearRight  = cx > (1 - SNAP_ZONE) * vw;
+        const nearTop    = cy < SNAP_ZONE * vh;
+        const nearBottom = cy > (1 - SNAP_ZONE) * vh;
+
+        if (!nearLeft && !nearRight && !nearTop && !nearBottom) {
+            // Free-float: store position as % of viewport so it survives resizes.
+            settings.fabFreeX = Math.round(((rect.left) / vw) * 100 * 10) / 10;
+            settings.fabFreeY = Math.round(((rect.top)  / vh) * 100 * 10) / 10;
+            // Clear any previously saved edge state.
+            settings.fabEdge = null;
+            settings.fabPosition = null;
+            saveSettings();
+            // No animation — the button is already in the right place from the drag.
+            return;
+        }
+
+        // Near an edge: snap to the closest one.
+        // Clear any previously saved free-float position.
+        settings.fabFreeX = null;
+        settings.fabFreeY = null;
+
+        const distLeft   = cx;
+        const distRight  = vw - cx;
+        const distTop    = cy;
         const distBottom = vh - cy;
         const minDist = Math.min(distLeft, distRight, distTop, distBottom);
 
         let edge, pos;
-        if (minDist === distRight) { edge = 'right'; pos = Math.round((cy / vh) * 100); }
-        else if (minDist === distLeft) { edge = 'left'; pos = Math.round((cy / vh) * 100); }
+        if (minDist === distRight)       { edge = 'right';  pos = Math.round((cy / vh) * 100); }
+        else if (minDist === distLeft)   { edge = 'left';   pos = Math.round((cy / vh) * 100); }
         else if (minDist === distBottom) { edge = 'bottom'; pos = Math.round((cx / vw) * 100); }
-        else { edge = 'top'; pos = Math.round((cx / vw) * 100); }
+        else                             { edge = 'top';    pos = Math.round((cx / vw) * 100); }
 
         settings.fabEdge = edge;
         settings.fabPosition = pos;
@@ -1766,19 +3534,79 @@
     function buildAvatarHtml(charName, extraClass = '', id = '', small = false) {
         const avatarUrl = getCharAvatarUrl();
         const initial = charName.charAt(0).toUpperCase();
+        const escapedInitial = escapeHtml(initial);
         const idAttr = id ? ` id="${id}"` : '';
         const sizeClass = small ? 'et-char-avatar-small' : 'et-char-avatar';
-        const hiddenClass = settings.showAvatar === false ? ' et-avatar-hidden' : '';
+        // Only apply hidden class to bubble avatars, not header avatars
+        const isBubbleAvatar = extraClass && extraClass.includes('et-bubble-avatar');
+        const hiddenClass = (settings.showAvatar === false && isBubbleAvatar) ? ' et-avatar-hidden' : '';
 
-        // Use theme color when no avatar image is attached
-        let backgroundColor = 'var(--et-theme-color)';
+        // Derive initial-circle background from name (same palette as character picker)
+        const bgColor = _pickerAvatarBg ? _pickerAvatarBg(charName) : 'var(--et-theme-color)';
+
+        // Special placeholder when no character is loaded (name is the fallback 'Character' and no image)
+        const isNoChar = !getCurrentCharacter();
+        if (isNoChar && !avatarUrl && !small) {
+            return `<div class="${sizeClass} et-no-char-avatar et-echo-logo${hiddenClass}${extraClass ? ' ' + extraClass : ''}"${idAttr} title="EchoText"><svg width="62%" height="62%" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="4" width="2.6" height="16" rx="1.3" fill="rgba(255,255,255,0.92)"/><rect x="5" y="4" width="13.5" height="2.6" rx="1.3" fill="rgba(255,255,255,0.92)"/><rect x="5" y="10.7" width="10.5" height="2.6" rx="1.3" fill="rgba(255,255,255,0.92)"/><rect x="5" y="17.4" width="13.5" height="2.6" rx="1.3" fill="rgba(255,255,255,0.92)"/></svg></div>`;
+        }
 
         if (avatarUrl) {
-            return `<div class="${sizeClass}${hiddenClass}${extraClass ? ' ' + extraClass : ''}"${idAttr} style="background-color: ${backgroundColor};">
-                <img src="${avatarUrl}" alt="${initial}" class="et-avatar-img" onerror="this.parentElement.classList.add('et-avatar-img-error'); this.remove();">
+            // Render the initial circle as the base layer; the <img> floats above it.
+            // After the image loads we canvas-fingerprint it — if it matches the ST default
+            // silhouette (near-black or grey-purple [149,127,143] at px 50,50) we remove the
+            // image and reveal the styled initial circle underneath.
+            const html = `<div class="${sizeClass}${hiddenClass}${extraClass ? ' ' + extraClass : ''}"${idAttr} style="background:${bgColor};">
+                <span class="et-char-avatar-initial" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;color:#fff;border-radius:50%;pointer-events:none;">${escapedInitial}</span>
+                <img src="${avatarUrl}" alt="${escapedInitial}" class="et-avatar-img" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.remove();">
             </div>`;
+            // Schedule fingerprinting after DOM insertion via a non-blocking timeout
+            setTimeout(() => {
+                if (id) _fingerprintAvatarImg(document.getElementById(id));
+            }, 0);
+            return html;
         }
-        return `<div class="${sizeClass}${hiddenClass}${extraClass ? ' ' + extraClass : ''}"${idAttr} style="background-color: ${backgroundColor};">${initial}</div>`;
+        return `<div class="${sizeClass}${hiddenClass}${extraClass ? ' ' + extraClass : ''}"${idAttr} style="background:${bgColor};position:relative;">
+            <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;color:#fff;">${escapedInitial}</span>
+        </div>`;
+    }
+
+    /**
+     * Canvas-fingerprint the <img> inside an avatar wrapper element.
+     * If the loaded image matches the ST default silhouette, removes it to
+     * reveal the styled initial circle rendered underneath.
+     */
+    function _fingerprintAvatarImg(wrapperEl) {
+        if (!wrapperEl) return;
+        const img = wrapperEl.querySelector('img.et-avatar-img');
+        if (!img) return;
+
+        function _check() {
+            try {
+                const naturalW = img.naturalWidth;
+                const naturalH = img.naturalHeight;
+                if (!naturalW || !naturalH) return; // not loaded yet
+                const sampleX = Math.min(50, naturalW - 1);
+                const sampleY = Math.min(50, naturalH - 1);
+                const c = document.createElement('canvas');
+                c.width = naturalW; c.height = naturalH;
+                const ctx = c.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const px = ctx.getImageData(sampleX, sampleY, 1, 1).data;
+                const brightness = px[0] + px[1] + px[2];
+                const isNearBlack = brightness <= 15;
+                const TOL = 12;
+                const isGreyPurple = Math.abs(px[0] - 149) <= TOL &&
+                                     Math.abs(px[1] - 127) <= TOL &&
+                                     Math.abs(px[2] - 143) <= TOL;
+                if (isNearBlack || isGreyPurple) img.remove();
+            } catch (_e) { /* cross-origin — keep the image */ }
+        }
+
+        if (img.complete && img.naturalWidth > 0) {
+            _check();
+        } else {
+            img.addEventListener('load', _check, { once: true });
+        }
     }
 
     /**
@@ -1805,22 +3633,25 @@
         if (groupManager.clearGroupCharUnread) groupManager.clearGroupCharUnread(charKey);
         renderGroupUnreadIndicators();
 
+        // In combine mode, switching single chars doesn't affect the panel display
+        if (groupManager.isCombineMode()) return;
+
         const charName = charObj.name || 'Character';
 
         // Update panel header
-        jQuery('#et-char-name').text(charName);
-        jQuery('#et-input').attr('placeholder', `Text ${charName}...`);
+        jQuery('#et-panel-drag-handle').removeClass('et-panel-header-no-char');
+        jQuery('#et-panel').removeClass('et-panel-no-char');
+        jQuery('#et-char-name').html(`${escapeHtml(charName)}<i class="fa-solid fa-chevron-down et-char-name-caret" aria-hidden="true"></i>`);
+        jQuery('#et-input').attr('placeholder', `Text ${charName}...`).prop('disabled', false);
+        jQuery('#et-send-btn').prop('disabled', false);
 
         // Rebuild avatar in the header using the group module's builder
         const newAvatarHtml = groupManager.buildAvatarHtmlForChar(charObj, '', 'et-char-avatar-wrap');
         jQuery('#et-char-avatar-wrap').replaceWith(newAvatarHtml);
 
-        // Refresh emotion indicator for the newly selected char
-        const emotionEnabled = settings.emotionSystemEnabled !== false && isTetheredMode();
-        const isUntethered = !isTetheredMode();
-        jQuery('#et-emotion-indicator').toggleClass('et-emotion-indicator-hidden', !emotionEnabled);
-        jQuery('#et-char-name').toggleClass('et-char-name-clickable', emotionEnabled || isUntethered);
-        if (emotionEnabled) updateEmotionIndicator();
+        // Refresh emotion indicator — hidden in group session
+        jQuery('#et-emotion-indicator').addClass('et-emotion-indicator-hidden');
+        updatePanelStatusRow();
 
         // Render this character's history
         const history = getChatHistory();
@@ -1833,42 +3664,76 @@
     }
 
     function buildPanelHtml() {
-        const charName = getCharacterName();
         const tethered = isTetheredMode();
+        const inGroup = groupManager && groupManager.isGroupSession();
+        // Combined Group Mode: the header must list all member names, not just the active char.
+        // buildPanelHtml is called by openPanel() before applySelectedCharacterToPanel() runs,
+        // so without this check the header would show only the first active member (e.g. "Amy")
+        // instead of "Group: Amy, Joi, Iris" — making it appear combine mode was exited.
+        const inCombine = inGroup && groupManager && groupManager.isCombineMode();
+
+        let charName, hasChar, displayName;
+        if (inCombine) {
+            const members = groupManager.getGroupMembers();
+            const memberNames = members.map(c => c.name).join(', ');
+            charName = memberNames;
+            hasChar = members.length > 0;
+            displayName = `Group: ${memberNames}`;
+        } else {
+            charName = getCharacterName();
+            hasChar = !!getCurrentCharacter();
+            displayName = hasChar ? charName : 'Choose A Character';
+        }
+        const noCharClass = hasChar ? '' : ' et-panel-header-no-char';
+        const panelNoCharClass = hasChar ? '' : ' et-panel-no-char';
 
         return `
-        <div id="et-panel" class="et-panel">
+        <div id="et-panel" class="et-panel${panelNoCharClass}">
             <div class="et-resize-handle" data-corner="nw"></div>
             <div class="et-resize-handle" data-corner="ne"></div>
             <div class="et-resize-handle" data-corner="sw"></div>
             <div class="et-resize-handle" data-corner="se"></div>
 
-            <div class="et-panel-header" id="et-panel-drag-handle">
+            <div class="et-panel-header${noCharClass}" id="et-panel-drag-handle">
                 <div class="et-header-left">
                     ${buildAvatarHtml(charName, '', 'et-char-avatar-wrap')}
+                    <span class="et-panel-echotext-title">EchoText</span>
                     <div class="et-header-info">
                         <div class="et-char-name-row">
-                            <div class="et-char-name et-char-name-clickable" id="et-char-name" title="View emotional state">${charName}</div>
-                            <div class="et-emotion-indicator" id="et-emotion-indicator" title="Emotional state"><i class="fa-solid fa-sun"></i></div>
+                            <div class="et-char-name" id="et-char-name" title="Select character">${escapeHtml(displayName)}<i class="fa-solid fa-chevron-down et-char-name-caret" aria-hidden="true"></i></div>
                         </div>
-                        <div class="et-char-status-row" id="et-char-status">
-                            <span class="et-plugin-badge">EchoText</span>
+                        <div class="et-char-status-row${inGroup ? '' : ' et-panel-status-clickable'}" id="et-panel-status-trigger" title="Open details">
+                            <div id="et-panel-status-content" class="et-panel-status-content"><span class="et-status-placeholder">Loading...</span></div>
                         </div>
                     </div>
                 </div>
                 <div class="et-header-right">
-                    <button class="et-mode-toggle ${tethered ? 'et-mode-tethered' : 'et-mode-untethered'}" id="et-mode-toggle-btn"
-                        title="${tethered ? 'Tethered: history saved, context connected' : 'Untethered: standalone session, no ST sync'}">
+                    <button class="et-mode-toggle ${tethered ? 'et-mode-tethered' : 'et-mode-untethered'}${inGroup ? ' et-mode-toggle-group-off et-mode-toggle-hidden' : ''}" id="et-mode-toggle-btn"
+                        title="${inGroup ? 'This toggle is unavailable in group sessions.' : (tethered ? 'Tethered: Syncs mood and context with the main chat.' : 'Untethered: Standalone session with no main chat sync.')}"
+                        aria-disabled="${inGroup}">
                         <i class="fa-solid ${tethered ? 'fa-link' : 'fa-link-slash'}"></i>
                     </button>
-                    <div class="et-header-btn" id="et-clear-btn" title="Clear chat history">
-                        <i class="fa-solid fa-trash-can"></i>
+                    <div class="et-header-btn" id="et-overflow-btn" title="More options">
+                        <i class="fa-solid fa-ellipsis-vertical"></i>
                     </div>
-                    <div class="et-header-btn" id="et-saveload-btn" title="Save / Load Chat Archives">
-                        <i class="fa-solid fa-floppy-disk"></i>
-                    </div>
-                    <div class="et-header-btn" id="et-settings-btn" title="EchoText Settings">
-                        <i class="fa-solid fa-gear"></i>
+                    <div class="et-overflow-menu" id="et-overflow-menu">
+                        <div class="et-overflow-menu-item" id="et-overflow-settings">
+                            <i class="fa-solid fa-gear"></i>
+                            <span>Settings</span>
+                        </div>
+                        <div class="et-overflow-menu-item" id="et-overflow-gallery" style="display:none">
+                            <i class="fa-regular fa-images"></i>
+                            <span>Gallery</span>
+                        </div>
+                        <div class="et-overflow-menu-item" id="et-overflow-saveload" style="display:none">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            <span>Archives</span>
+                        </div>
+                        <div class="et-overflow-menu-divider" id="et-overflow-char-divider" style="display:none"></div>
+                        <div class="et-overflow-menu-item" id="et-overflow-clear" style="display:none">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>Clear History</span>
+                        </div>
                     </div>
                     <div class="et-header-btn et-close-btn" id="et-close-btn" title="Close EchoText">
                         <i class="fa-solid fa-xmark"></i>
@@ -1883,8 +3748,10 @@
             </div>
 
             <div class="et-input-bar">
-                <textarea class="et-input" id="et-input" placeholder="Text ${charName}..." rows="1"></textarea>
-                <button class="et-send-btn" id="et-send-btn" title="Send message">
+                <div class="et-input-wrap">
+                    <textarea class="et-input" id="et-input" placeholder="${inCombine ? `Message all: ${charName}...` : (hasChar ? `Text ${charName}...` : 'Text a character...')}" rows="1"${hasChar ? '' : ' disabled'}></textarea>
+                </div>
+                <button class="et-send-btn" id="et-send-btn" title="Send message"${hasChar ? '' : ' disabled'}>
                     <i class="fa-solid fa-paper-plane"></i>
                 </button>
             </div>
@@ -1897,30 +3764,58 @@
         const fab = jQuery('#et-fab');
         if (!fab.length) return;
 
+        // Re-check background luminance on every open so that a SillyTavern
+        // theme switch made while the panel was closed is picked up immediately.
+        applyAdaptiveGlass();
+
         jQuery('#et-panel').remove();
+        // Build the panel HTML into body first (jQuery needs it in the DOM
+        // to resolve selectors), then immediately move it into the portal so
+        // position:fixed works correctly on iOS (body is position:fixed on
+        // mobile viewports in SillyTavern's mobile-styles.css).
         jQuery('body').append(buildPanelHtml());
+        const panelEl = document.getElementById('et-panel');
+        if (panelEl) {
+            const portal = ensurePortal();
+            portal.appendChild(panelEl);
+        }
         const panel = jQuery('#et-panel');
 
-        const panelW = settings.panelWidth || 380;
-        const panelH = settings.panelHeight || 600;
-        const defaultLeft = Math.max(20, window.innerWidth - panelW - 24);
-        const defaultTop = Math.max(20, (window.innerHeight - panelH) / 2);
+        if (isMobileDevice()) {
+            // Mobile: CSS (mobile-style.css) handles full-screen sizing via inset/width/height.
+            // Skip saved panelLeft/panelTop/panelWidth/panelHeight — desktop values are
+            // unsuitable for a phone viewport. Use fade-only animation (no scale, which
+            // causes compositor jank on iOS).
+            panel.css({ opacity: 0 });
+            requestAnimationFrame(() => {
+                panel.css({ transition: 'opacity 0.22s ease' });
+                requestAnimationFrame(() => panel.css({ opacity: 1 }));
+            });
+        } else {
+            // Desktop: restore saved size and position, use spring-scale animation.
+            const panelW = settings.panelWidth || 380;
+            const panelH = settings.panelHeight || 600;
+            const defaultLeft = Math.max(20, window.innerWidth - panelW - 24);
+            const defaultTop = Math.max(20, (window.innerHeight - panelH) / 2);
 
-        const startLeft = settings.panelLeft != null
-            ? Math.max(0, Math.min(window.innerWidth - panelW, settings.panelLeft))
-            : defaultLeft;
-        const startTop = settings.panelTop != null
-            ? Math.max(0, Math.min(window.innerHeight - 60, settings.panelTop))
-            : defaultTop;
+            const startLeft = settings.panelLeft != null
+                ? Math.max(0, Math.min(window.innerWidth - panelW, settings.panelLeft))
+                : defaultLeft;
+            const startTop = settings.panelTop != null
+                ? Math.max(0, Math.min(window.innerHeight - 60, settings.panelTop))
+                : defaultTop;
 
-        panel.css({ width: panelW + 'px', height: panelH + 'px', left: startLeft + 'px', top: startTop + 'px', opacity: 0, transform: 'scale(0.85)' });
+            panel.css({ width: panelW + 'px', height: panelH + 'px', left: startLeft + 'px', top: startTop + 'px', opacity: 0, transform: 'scale(0.85)' });
 
-        requestAnimationFrame(() => {
-            panel.css({ transition: 'opacity 0.25s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' });
-            requestAnimationFrame(() => { panel.css({ opacity: 1, transform: 'scale(1)' }); });
-        });
+            requestAnimationFrame(() => {
+                panel.css({ transition: 'opacity 0.25s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' });
+                requestAnimationFrame(() => { panel.css({ opacity: 1, transform: 'scale(1)' }); });
+            });
+        }
 
         panelOpen = true;
+        settings.panelWasOpen = true;
+        saveSettings();
         fab.addClass('et-fab-hidden');
         setFabUnreadIndicator(false);
         bindPanelEvents();
@@ -1929,29 +3824,40 @@
         if (groupManager) {
             groupManager.ensureActiveChar();
             groupManager.renderGroupBar(groupManager.getActiveCharKey());
-            groupManager.bindGroupBarEvents(switchGroupChar);
+            groupManager.bindGroupBarEvents(switchGroupChar, onCombineModeToggle, triggerManualCombineChar);
             renderGroupUnreadIndicators();
         }
 
-        // Load and render existing history (no auto first_mes)
-        const history = getChatHistory();
-        if (history.length === 0 && !getCurrentCharacter()) {
-            showNoCharacterMessage();
-        } else {
-            renderMessages(history);
-        }
+        // Apply character state now that panelOpen = true.
+        // This shows/hides overflow menu items, avatar, status row, etc. for whichever
+        // character is currently selected — including when the user re-opens the panel
+        // with a pinned character (CHAT_CHANGED is suppressed in that case, so without
+        // this call the overflow items would remain hidden after every panel rebuild).
+        applySelectedCharacterToPanel();
 
-        setTimeout(() => jQuery('#et-input').focus(), 300);
+        setTimeout(() => { if (!isMobileDevice()) jQuery('#et-input').focus(); }, 300);
     }
 
     function closePanel() {
         if (!panelOpen) return;
+
+        // Remove visualViewport resize/scroll listeners that were attached in
+        // bindPanelEvents() to keep the panel above the iOS on-screen keyboard.
+        const _panelEl = document.getElementById('et-panel');
+        if (_panelEl && typeof _panelEl._vvCleanup === 'function') {
+            _panelEl._vvCleanup();
+            _panelEl._vvCleanup = null;
+        }
+
+        closeCharacterPicker();
 
         // Close any open emoji overlays
         jQuery('.et-react-overlay').remove();
 
         // Remove document event listeners
         jQuery(document).off('click.et-react');
+        jQuery(document).off('click.et-overflow');
+        jQuery('#et-overflow-menu').removeClass('et-overflow-menu-open');
 
         const panel = jQuery('#et-panel');
         const fab = jQuery('#et-fab');
@@ -1960,50 +3866,14 @@
         setTimeout(() => {
             panel.remove();
             panelOpen = false;
+            settings.panelWasOpen = false;
+            saveSettings();
             fab.removeClass('et-fab-hidden');
         }, 220);
     }
 
     function showNoCharacterMessage() {
-        const inner = jQuery('#et-messages-inner');
-        inner.html(`
-            <div class="et-no-char-msg">
-                <i class="fa-solid fa-user-slash"></i>
-                <p>No character selected.</p>
-                <p>Load a character card in SillyTavern to start texting.</p>
-            </div>
-        `);
-    }
-
-    // Emotion → colour map for Dynamic Emotion Panel tint
-    const EMOTION_TINT_COLORS = {
-        happy: 'rgba(251, 211, 71, 0.18)',
-        excited: 'rgba(251, 146, 60, 0.18)',
-        playful: 'rgba(167, 139, 250, 0.18)',
-        flirty: 'rgba(249, 168, 212, 0.20)',
-        loving: 'rgba(251, 113, 133, 0.18)',
-        content: 'rgba(74, 222, 128, 0.14)',
-        calm: 'rgba(147, 197, 253, 0.14)',
-        curious: 'rgba(125, 211, 252, 0.16)',
-        surprised: 'rgba(250, 204, 21, 0.18)',
-        nervous: 'rgba(253, 224, 71, 0.14)',
-        sad: 'rgba(100, 149, 237, 0.18)',
-        angry: 'rgba(239, 68, 68, 0.18)',
-        frustrated: 'rgba(234, 88, 12, 0.16)',
-        scared: 'rgba(139, 92, 246, 0.18)',
-        disgusted: 'rgba(34, 197, 94, 0.16)',
-        bored: 'rgba(148, 163, 184, 0.12)',
-        melancholy: 'rgba(99, 102, 241, 0.16)',
-        embarrassed: 'rgba(244, 114, 182, 0.18)',
-        shy: 'rgba(192, 132, 252, 0.15)',
-        neutral: 'transparent'
-    };
-
-    function applyEmotionPanelTint(emotionKey) {
-        if (!settings.dynamicEmotionPanel) return;
-        const tint = EMOTION_TINT_COLORS[emotionKey] || 'transparent';
-        document.documentElement.style.setProperty('--et-emotion-tint', tint);
-        jQuery('#et-panel').addClass('et-emotion-active');
+        openEmbeddedCharacterPicker();
     }
 
 
@@ -2013,28 +3883,125 @@
         makePanelResizable();
 
         jQuery('#et-close-btn').on('click', closePanel);
-        jQuery('#et-settings-btn').on('click', () => settingsModal.openSettingsModal());
-        jQuery('#et-saveload-btn').on('click', (e) => { e.stopPropagation(); openSaveLoadModal(); });
 
-        // Emotion popup or Untethered popup: click char name
-        jQuery('#et-char-name').on('click', function (e) {
+        // ── Overflow menu (three-dot) ──────────────────────────────
+        jQuery('#et-overflow-btn').on('click', function (e) {
             e.stopPropagation();
-            if (isTetheredMode()) {
-                const emotionEnabled = settings.emotionSystemEnabled !== false;
-                if (emotionEnabled) toggleEmotionPopup();
+            const menu = jQuery('#et-overflow-menu');
+            const isOpen = menu.hasClass('et-overflow-menu-open');
+            menu.toggleClass('et-overflow-menu-open', !isOpen);
+        });
+
+        function closeOverflowMenu() {
+            jQuery('#et-overflow-menu').removeClass('et-overflow-menu-open');
+        }
+
+        // Two-click inline confirmation for Clear History (no modal)
+        let clearHistoryConfirmPending = false;
+        let clearHistoryConfirmTimer = null;
+
+        jQuery('#et-overflow-clear').on('click', (e) => {
+            e.stopPropagation();
+
+            if (clearHistoryConfirmPending) {
+                // Second click: execute the clear
+                clearTimeout(clearHistoryConfirmTimer);
+                clearHistoryConfirmTimer = null;
+                clearHistoryConfirmPending = false;
+
+                // Reset button UI back to its default state
+                const item = jQuery('#et-overflow-clear');
+                item.find('i').attr('class', 'fa-solid fa-trash-can');
+                item.find('span').text('Clear History');
+                item.removeClass('et-overflow-item-confirm');
+
+                if (!isTetheredMode() && untetheredChat) {
+                    untetheredChat.resetUntetheredChat();
+                }
+                clearChatHistory();
+                renderMessages([]);
+                updatePanelStatusRow();
+                closeOverflowMenu();
             } else {
-                toggleUntetheredPopup();
+                // First click: enter confirm state
+                clearHistoryConfirmPending = true;
+                const item = jQuery('#et-overflow-clear');
+                item.find('i').attr('class', 'fa-solid fa-triangle-exclamation');
+                item.find('span').text('Tap Again to Confirm');
+                item.addClass('et-overflow-item-confirm');
+
+                clearHistoryConfirmTimer = setTimeout(() => {
+                    clearHistoryConfirmPending = false;
+                    item.find('i').attr('class', 'fa-solid fa-trash-can');
+                    item.find('span').text('Clear History');
+                    item.removeClass('et-overflow-item-confirm');
+                }, 3000);
             }
         });
 
-        jQuery('#et-emotion-indicator').on('click', function (e) {
+        jQuery('#et-overflow-saveload').on('click', (e) => {
             e.stopPropagation();
-            toggleEmotionPopup();
+            closeOverflowMenu();
+            openSaveLoadModal();
         });
 
-        // In-bubble avatar/name pill opens emotion popup or untethered popup
-        jQuery('#et-messages').on('click.et-avatar-emotion', '.et-char-info-pill', function (e) {
+        jQuery('#et-overflow-settings').on('click', (e) => {
             e.stopPropagation();
+            closeOverflowMenu();
+            settingsModal.openSettingsModal();
+            moveModalToPortal('.et-settings-modal');
+        });
+
+        jQuery('#et-overflow-gallery').on('click', (e) => {
+            e.stopPropagation();
+            closeOverflowMenu();
+            if (gallery) gallery.openGalleryModal();
+            moveModalToPortal('.et-gallery-overlay');
+        });
+
+        jQuery(document).on('click.et-overflow', function (e) {
+            if (!jQuery(e.target).closest('#et-overflow-btn, #et-overflow-menu').length) {
+                closeOverflowMenu();
+            }
+        });
+        // ─────────────────────────────────────────────────────────
+
+        // Character picker: click char name row (includes caret)
+        jQuery('#et-char-name').on('click', function (e) {
+            e.stopPropagation();
+            jQuery('#et-emotion-popup').remove();
+            jQuery('#et-uc-popup').remove();
+            jQuery(document).off('click.et-emo-popup');
+            jQuery(document).off('click.et-uc-outside');
+            toggleCharacterPicker();
+        });
+
+        // Character picker: click caret also opens picker
+        jQuery('#et-panel').on('click', '.et-char-name-caret', function (e) {
+            e.stopPropagation();
+            jQuery('#et-emotion-popup').remove();
+            jQuery('#et-uc-popup').remove();
+            jQuery(document).off('click.et-emo-popup');
+            jQuery(document).off('click.et-uc-outside');
+            toggleCharacterPicker();
+        });
+
+        // No-char select button: removed (picker is now embedded inline when no char selected)
+
+        jQuery('#et-panel').on('click', '#et-uc-popup .et-uc-option-btn, #et-uc-popup #et-uc-popup-reset, #et-uc-popup .et-uc-popup-close', () => {
+            setTimeout(() => updatePanelStatusRow(), 0);
+        });
+
+        jQuery('#et-panel').on('input', '#et-uc-popup #et-uc-mood-influence, #et-uc-popup #et-uc-personality-influence', () => {
+            setTimeout(() => updatePanelStatusRow(), 0);
+        });
+
+        // Status row opens emotion/chat influence menus (disabled in group sessions)
+        jQuery('#et-panel').on('click', '#et-panel-status-trigger', function (e) {
+            e.stopPropagation();
+            // In group session the status row is informational only — no popup
+            if (groupManager && groupManager.isGroupSession()) return;
+            closeCharacterPicker();
             if (isTetheredMode()) {
                 const emotionEnabled = settings.emotionSystemEnabled !== false;
                 if (emotionEnabled) toggleEmotionPopup(this);
@@ -2043,17 +4010,23 @@
             }
         });
 
-        // Initialize emotion indicator and clickability
-        const emotionEnabled = settings.emotionSystemEnabled !== false && isTetheredMode();
-        const untethered = !isTetheredMode();
+        // Initialize status row based on mode/state
+        // In group sessions, emotion indicator is always hidden
+        const inGroupNow = groupManager && groupManager.isGroupSession();
+        const emotionEnabled = settings.emotionSystemEnabled !== false && isTetheredMode() && !inGroupNow;
         jQuery('#et-emotion-indicator').toggleClass('et-emotion-indicator-hidden', !emotionEnabled);
-        jQuery('#et-char-name').toggleClass('et-char-name-clickable', emotionEnabled || untethered);
-        jQuery('#et-char-name').attr('title', untethered ? 'Mood, Personality & Style' : 'View emotional state');
-
         if (emotionEnabled) updateEmotionIndicator();
+        updatePanelStatusRow();
 
-        jQuery('#et-mode-toggle-btn').on('click', function (e) {
+        jQuery('#et-panel').on('click', '#et-mode-toggle-btn', function (e) {
             e.stopPropagation();
+            // Disabled in group chat — all tethered/untethered logic is bypassed
+            if (groupManager && groupManager.isGroupSession()) return;
+
+            jQuery('#et-emotion-popup').remove();
+            jQuery('#et-uc-popup').remove();
+            jQuery(document).off('click.et-emo-popup');
+            jQuery(document).off('click.et-uc-outside');
             settings.chatMode = isTetheredMode() ? 'untethered' : 'tethered';
             saveSettings();
             startProactiveScheduler();
@@ -2062,32 +4035,18 @@
             renderMessages(history);
 
             const nextEmotionEnabled = settings.emotionSystemEnabled !== false && isTetheredMode();
-            const nextUntethered = !isTetheredMode();
             jQuery('#et-emotion-indicator').toggleClass('et-emotion-indicator-hidden', !nextEmotionEnabled);
-            jQuery('#et-char-name').toggleClass('et-char-name-clickable', nextEmotionEnabled || nextUntethered);
-            jQuery('#et-char-name').attr('title', nextUntethered ? 'Mood, Personality & Style' : 'View emotional state');
-
             if (nextEmotionEnabled) updateEmotionIndicator();
+            updatePanelStatusRow();
 
             const btn = jQuery('#et-mode-toggle-btn');
             const tethered = isTetheredMode();
             btn.toggleClass('et-mode-tethered', tethered).toggleClass('et-mode-untethered', !tethered);
             btn.find('i').attr('class', `fa-solid ${tethered ? 'fa-link' : 'fa-link-slash'}`);
-            btn.attr('title', tethered ? 'Tethered: history saved, context connected' : 'Untethered: standalone session, no ST sync');
+            btn.attr('title', tethered ? 'Tethered: Syncs mood and context with the main chat.' : 'Untethered: Standalone session with no main chat sync.');
             btn.addClass('et-mode-toggle-anim');
-            setTimeout(() => btn.removeClass('et-mode-toggle-anim'), 600);
+            setTimeout(() => btn.removeClass('et-mode-toggle-anim'), 450);
             refreshProactiveInsights();
-        });
-
-        jQuery('#et-clear-btn').on('click', async () => {
-            const confirmed = await showConfirmModal('Clear all chat history with this character?');
-            if (confirmed) {
-                if (!isTetheredMode() && untetheredChat) {
-                    untetheredChat.resetUntetheredChat();
-                }
-                clearChatHistory();
-                renderMessages([]);
-            }
         });
 
         jQuery('#et-send-btn').on('click', handleSend);
@@ -2099,7 +4058,7 @@
             }
         }).on('input', function () {
             this.style.height = 'auto';
-            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            this.style.height = Math.min(this.scrollHeight + 2, 92) + 'px';
         });
 
         // Close emoji overlays when clicking outside
@@ -2109,11 +4068,45 @@
             }
         });
 
-        // Avatar Lightbox
+        // Avatar: logo only — no picker on click. Lightbox when a character is selected.
         jQuery('#et-panel').on('click', '#et-char-avatar-wrap', function (e) {
             e.stopPropagation();
-            openAvatarLightbox();
+            if (getCurrentCharacter()) {
+                openAvatarLightbox();
+            }
         });
+
+        // Memory highlight click → save modal (or remove modal if already saved)
+        jQuery('#et-panel').on('click', '.et-mem-highlight', function (e) {
+            e.stopPropagation();
+            if (jQuery(this).hasClass('et-mem-highlight-saved')) {
+                showMemoryRemoveModal(this);
+            } else {
+                showMemorySaveModal(this);
+            }
+        });
+
+        // ── iOS / mobile: keep the panel height in sync with the visual viewport ──
+        // When the on-screen keyboard opens, visualViewport.height shrinks. We update
+        // the panel height & top so the input bar stays visible above the keyboard.
+        if (window.visualViewport && isMobileDevice()) {
+            const panelEl = document.getElementById('et-panel');
+            if (panelEl) {
+                const onVVResize = () => {
+                    if (!panelOpen) return;
+                    panelEl.style.height = window.visualViewport.height + 'px';
+                    panelEl.style.top    = window.visualViewport.offsetTop  + 'px';
+                };
+                window.visualViewport.addEventListener('resize', onVVResize);
+                window.visualViewport.addEventListener('scroll', onVVResize);
+                // Store a cleanup callback on the element so closePanel() can
+                // remove the listeners when the panel is destroyed.
+                panelEl._vvCleanup = () => {
+                    window.visualViewport.removeEventListener('resize', onVVResize);
+                    window.visualViewport.removeEventListener('scroll', onVVResize);
+                };
+            }
+        }
     }
 
     function openAvatarLightbox() {
@@ -2148,11 +4141,21 @@
 
         const input = jQuery('#et-input');
         const text = input.val().trim();
-        if (!text) return;
 
         const char = getCurrentCharacter();
         if (!char) {
             toastr.warning('Please select a character card to start texting.');
+            return;
+        }
+
+        // Empty send — generate a continuation/response from the last message
+        if (!text) {
+            const history = getChatHistory();
+            if (groupManager && groupManager.isGroupSession() && groupManager.isCombineMode()) {
+                generateEchoTextCombined(history);
+            } else {
+                generateEchoText(history);
+            }
             return;
         }
 
@@ -2162,7 +4165,7 @@
         processMessageEmotion(text, true);
 
         const history = getChatHistory();
-        const newHistory = [...history, {
+        const userMsg = {
             is_user: true,
             mes: text,
             send_date: Date.now(),
@@ -2172,14 +4175,33 @@
                     note: 'Sent'
                 }
             }
-        }];
+        };
+        // Detect memory-worthy spans in the user's message for manual highlighting
+        if (memorySystem && settings.memoryEnabled && settings.memoryAutoExtract) {
+            try {
+                const candidates = memorySystem.detectHighlightableText(text);
+                if (candidates && candidates.length > 0) userMsg.memoryHighlights = candidates;
+            } catch (e) { /* ignore detection errors */ }
+        }
+        const newHistory = [...history, userMsg];
         saveChatHistory(newHistory);
         setFabUnreadIndicator(false);
         if (isTetheredMode()) {
             markProactiveUserActivity(getCharacterKey(), Date.now());
         }
         renderMessages(newHistory);
-        generateEchoText(newHistory);
+
+        // Schedule a probabilistic character reaction — fire-and-forget, independent
+        // of the generation pipeline. The timing jitter lands naturally after the
+        // "read" receipt and before the typing indicator appears.
+        maybeAddCharacterReaction(newHistory.length - 1, text);
+
+        // Route to combined generation when all characters should respond together
+        if (groupManager && groupManager.isGroupSession() && groupManager.isCombineMode()) {
+            generateEchoTextCombined(newHistory);
+        } else {
+            generateEchoText(newHistory);
+        }
     }
 
     function updateSendButton(generating) {
@@ -2187,11 +4209,11 @@
         if (generating) {
             btn.addClass('et-send-stop').attr('title', 'Cancel generation');
             btn.html('<i class="fa-solid fa-stop"></i>');
-            jQuery('#et-char-status').text('Typing...');
+            updatePanelStatusRow({ typing: true });
         } else {
             btn.removeClass('et-send-stop').attr('title', 'Send message');
             btn.html('<i class="fa-solid fa-paper-plane"></i>');
-            jQuery('#et-char-status').text('EchoText');
+            updatePanelStatusRow();
         }
     }
 
@@ -2200,6 +4222,10 @@
     // ============================================================
 
     function makePanelDraggable() {
+        // Dragging is disabled on mobile — the panel fills the full viewport
+        // and is not a floating window. CSS also removes the grab cursor.
+        if (isMobileDevice()) return;
+
         const panel = document.getElementById('et-panel');
         const handle = document.getElementById('et-panel-drag-handle');
         if (!panel || !handle) return;
@@ -2209,7 +4235,7 @@
 
         handle.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
-            if (e.target.closest('.et-header-btn, button, input, select, textarea')) return;
+            if (e.target.closest('.et-header-btn, button, input, select, textarea, #et-char-name, #et-panel-status-trigger')) return;
             isDragging = true;
             startX = e.clientX; startY = e.clientY;
             const rect = panel.getBoundingClientRect();
@@ -2221,7 +4247,7 @@
         });
 
         handle.addEventListener('touchstart', (e) => {
-            if (e.target.closest('.et-header-btn, button, input, select, textarea')) return;
+            if (e.target.closest('.et-header-btn, button, input, select, textarea, #et-char-name, #et-panel-status-trigger')) return;
             const t = e.touches[0];
             isDragging = true;
             startX = t.clientX; startY = t.clientY;
@@ -2267,6 +4293,10 @@
     }
 
     function makePanelResizable() {
+        // Resizing is disabled on mobile — the panel is full-screen.
+        // Resize handles are also hidden via mobile-style.css.
+        if (isMobileDevice()) return;
+
         const panel = jQuery('#et-panel');
         if (!panel.length) return;
 
@@ -2334,23 +4364,206 @@
 
     function processMessageEmotion(text, isUser) {
         if (emotionSystem) emotionSystem.processMessageEmotion(text, isUser);
+        if (panelOpen && isTetheredMode()) updatePanelStatusRow();
     }
 
     function applyReactionToEmotions(reactionId, direction = 1) {
         if (emotionSystem) emotionSystem.applyReactionToEmotions(reactionId, direction);
+        if (panelOpen && isTetheredMode()) updatePanelStatusRow();
+    }
+
+    // Thin wrapper — delegates to emotion-system.js
+    function selectCharacterReaction(userMessageText) {
+        if (!emotionSystem) return null;
+        return emotionSystem.selectCharacterReaction(userMessageText);
+    }
+
+    // ============================================================
+    // AI CHARACTER REACTIONS TO USER MESSAGES
+    // ============================================================
+
+    /**
+     * Schedules a probabilistic emoji reaction from the character to the user's
+     * most-recently-sent message. Called fire-and-forget from handleSend() so it
+     * runs entirely outside the generation pipeline.
+     *
+     * Timing: reaction arrives ~readDelayMs + 1200-4500ms after message send,
+     * which means it lands naturally after the "read" receipt ticks but before
+     * (or shortly after) the typing indicator appears — exactly when a real person
+     * would tap a react emoji after reading.
+     *
+     * @param {number} userMsgIndex - index of the user message in chat history
+     * @param {string} userText     - raw text of the user's message
+     */
+    function maybeAddCharacterReaction(userMsgIndex, userText) {
+        if (settings.emotionSystemEnabled === false) return;
+        if (!emotionSystem) return;
+
+        // selectCharacterReaction performs the dry-run delta analysis and returns
+        // { reactionId, probability, magnitude } or null if nothing fits.
+        const candidate = selectCharacterReaction(userText);
+        if (!candidate) return;
+
+        // Probability roll — personality and impact weighted
+        if (Math.random() >= candidate.probability) return;
+
+        // Jitter delay: mirrors the "read" timing so the reaction feels organic.
+        // The character has "read" the message (readDelayMs) and then takes an
+        // additional moment (1200–4500ms) before tapping react — just like iMessage.
+        const timing = getEmotionReplyTimingModel();
+        const baseDelay  = timing.readDelayMs;
+        const jitterMs   = Math.round(1200 + Math.random() * 3300);
+        const totalDelay = baseDelay + jitterMs;
+
+        setTimeout(() => {
+            // Guard: bail if the panel was closed or the history has changed underneath us
+            if (!panelOpen) return;
+            if (settings.emotionSystemEnabled === false) return;
+            const history = getChatHistory();
+            if (!history[userMsgIndex] || !history[userMsgIndex].is_user) return;
+
+            addCharacterReaction(userMsgIndex, candidate.reactionId);
+        }, totalDelay);
+    }
+
+    /**
+     * Stores the character's emoji reaction on the user message object and
+     * updates the DOM in-place. The character can only hold one reaction per
+     * user message (same as how real iMessage reacts work — one reaction per
+     * sender per message).
+     *
+     * @param {number} msgIndex   - index of the user message in chat history
+     * @param {string} reactionId - FA_REACTIONS id (heart, haha, wow, etc.)
+     */
+    function addCharacterReaction(msgIndex, reactionId) {
+        const reactDef = FA_REACTIONS.find(r => r.id === reactionId);
+        if (!reactDef) return;
+
+        const history = getChatHistory();
+        const msg = history[msgIndex];
+        if (!msg || !msg.is_user) return;
+
+        // Toggle off if the same reaction exists (character changed their mind)
+        if (msg.charReaction === reactionId) {
+            delete msg.charReaction;
+        } else {
+            msg.charReaction = reactionId;
+        }
+
+        saveChatHistory(history);
+        renderCharacterReaction(msgIndex, msg.charReaction || null);
+    }
+
+    /**
+     * Updates the character reaction pill under a user bubble in the DOM.
+     * Called both during initial render (for persisted reactions) and live
+     * when a new reaction is added/removed.
+     *
+     * @param {number}      msgIndex   - message index
+     * @param {string|null} reactionId - FA_REACTIONS id, or null to clear
+     */
+    function renderCharacterReaction(msgIndex, reactionId) {
+        const container = jQuery(`#et-char-reaction-${msgIndex}`);
+        if (!container.length) return;
+
+        container.empty();
+        if (!reactionId) return;
+
+        const reactDef = FA_REACTIONS.find(r => r.id === reactionId);
+        if (!reactDef) return;
+
+        const pill = jQuery(`
+            <div class="et-char-reaction-pill et-reaction-new" style="--react-color:${reactDef.color}" title="${reactDef.label}">
+                <i class="${reactDef.icon} et-char-reaction-icon"></i>
+            </div>
+        `);
+        container.append(pill);
+
+        // Remove the pop-in animation class after it plays so it doesn't replay on DOM mutations
+        setTimeout(() => pill.removeClass('et-reaction-new'), 450);
     }
 
     function updateEmotionIndicator() {
         if (emotionSystem) emotionSystem.updateEmotionIndicator();
+        if (panelOpen && isTetheredMode()) updatePanelStatusRow();
     }
 
     function toggleEmotionPopup(targetEl) {
+        jQuery('#et-uc-popup').remove();
+        jQuery(document).off('click.et-uc-outside');
         if (emotionSystem) emotionSystem.toggleEmotionPopup(targetEl);
+
+        const popup = jQuery('#et-emotion-popup');
+        const panel = jQuery('#et-panel');
+        if (popup.length && panel.length) {
+            const panelEl = panel[0];
+            const popupHeight = popup.outerHeight() || 420;
+            const popupWidth = popup.outerWidth() || 320;
+            const top = Math.max(12, Math.round((panelEl.clientHeight - popupHeight) / 2));
+            const left = Math.max(8, Math.round((panelEl.clientWidth - popupWidth) / 2));
+            popup.css({ top: `${top}px`, left: `${left}px` });
+        }
+    }
+
+    function convertEmoticonsToEmojis(text) {
+        if (!text) return text;
+
+        const emoticonsMap = {
+            '😂': ["':-)", "':)", ':"D', ":'-)", ":')"],
+            '😁': [":-))", ": ))"],
+            '😃': [":-D", ":D", "8-D", "8D", "=D", "B^D", "c:", "C:"],
+            '😆': ["x-D", "xD", "X-D", "XD"],
+            '🙂': [":-)", ":)", ":-]", ":]", ":->", ":>", "8-)", "8)", ":-}", "}", ":^)", "=]", "=)"],
+            '😢': [":'-(", ":'(", ":=("],
+            '😧': ["D-':", "D:<", "D:", "D8", "D;", "D=", "DX"],
+            '😠': [">:(", ">:["],
+            '🤢': [":-###..", ":###.."],
+            '☠️': ["8-X", "8=X", "x-3", "x=3"],
+            '😈': [">:-)", ">:)", "}:-)", "}:)", "3:-)", "3:)", ">;-)", ">;)", ">;3", ">:3"],
+            '😞': [":-(", ":(", ":-c", ":c", ":-<", ":<", ":-[", ":[", ":-||", ":{", ":@", ";("],
+            '😺': [":-3", ":3", "=3", "x3", "X3"],
+            '😛': [":-P", ":P", "X-P", "XP", "x-p", "xp", ":-p", ":p", ":-Þ", ":Þ", ":-þ", ":þ", ":-b", ":b", "d:", "=p", ">:b"],
+            '😉': [";-)", ";)", "*-)", "*)", ";-]", ";]", ";^)", ";>", ":-,", ";D", ";3"],
+            '😘': [":-*", ":*", ":x"],
+            '😼': [":-J"],
+            '😮': [":-O", ":O", ":-o", ":o", ":-0", ":0", "8-0", ">:O", "=O", "=o", "=0"],
+            '🤨': ["',:-|", "',:-l"],
+            '😕': [":-/", ":/", "',:^I", ">:\\", ">:/", ":\\", "=/", "=\\", ":L", "=L", ":S"],
+            '😐': [":-|", ":|"],
+            '😳': [":$", "://)", "://3"],
+            '🤐': [":-X", ":X", ":-#", ":#", ":-&", ":&"],
+            '😎': ["|;-)", "|-O", "B-)"],
+            '😵': ["#-)"],
+            '🥴': ["%-)", "%)"],
+            '😬': [":E"],
+            '😇': ["O:-)", "O:)", "0:-3", "0:3", "0:-)", "0:)", "0;^)"],
+            '🤡': ["<:-|"], // Dumb, dunce-like
+            '🐔': ["~:>"]
+        };
+
+        const replacements = [];
+        for (const [emoji, codes] of Object.entries(emoticonsMap)) {
+            for (const code of codes) replacements.push({ code, emoji });
+        }
+        replacements.sort((a, b) => b.code.length - a.code.length);
+
+        const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        let result = text;
+        for (const { code, emoji } of replacements) {
+            const regex = new RegExp(`(?<=^|\\s)${escapeRegExp(code)}(?=\\s|$)`, 'g');
+            result = result.replace(regex, emoji);
+        }
+
+        return result;
     }
 
     function formatMessageText(rawText) {
         const { DOMPurify } = SillyTavern.libs;
-        const raw = rawText || '';
+        let raw = rawText || '';
+
+        // Convert text emoticons to visual emojis
+        raw = convertEmoticonsToEmojis(raw);
 
         // Step 1: Apply inline markdown on raw text (before any HTML sanitization)
         // so that \n characters are still intact for paragraph splitting.
@@ -2377,13 +4590,202 @@
         });
     }
 
+    function buildImageAttachmentHtml(msg, index) {
+        const attachment = msg?.imageAttachment;
+        if (!attachment || attachment.type !== 'image') return '';
+
+        if (attachment.status === 'error') {
+            return `<div class="et-image-attachment et-image-attachment-error"><div class="et-image-error"><i class="fa-solid fa-triangle-exclamation"></i><span>${attachment.error || 'Sorry, I could not generate an image right now.'}</span></div></div>`;
+        }
+
+        if (attachment.status !== 'ready' || !attachment.url) {
+            return `<div class="et-image-attachment et-image-attachment-loading"><div class="et-image-gen-indicator"><div class="et-image-gen-ring"><svg viewBox="0 0 36 36" class="et-image-gen-svg"><circle class="et-image-gen-track" cx="18" cy="18" r="14" fill="none" stroke-width="2.5"/><circle class="et-image-gen-arc" cx="18" cy="18" r="14" fill="none" stroke-width="2.5" stroke-dasharray="22 66" stroke-linecap="round"/></svg><i class="fa-solid fa-camera et-image-gen-icon"></i></div><span class="et-image-gen-label">Generating image…</span></div></div>`;
+        }
+
+        return `<div class="et-image-attachment et-image-attachment-ready" data-image-index="${index}"><img src="${attachment.url}" alt="Generated image" class="et-generated-image"><div class="et-image-attachment-meta"><i class="fa-solid fa-expand"></i><span>Tap to enlarge</span></div></div>`;
+    }
+
+    function openGeneratedImageLightbox(imageUrl, promptText, options) {
+        if (!imageUrl) return;
+        jQuery('#et-generated-image-lightbox').remove();
+        const titleText = String(options?.title || '').trim();
+
+        // Navigation context — provided when caller has multiple images to step through
+        const navItems = Array.isArray(options?.navItems) && options.navItems.length > 1 ? options.navItems : null;
+        let currentNavIndex = navItems
+            ? Math.max(0, Math.min(Number(options?.navIndex) || 0, navItems.length - 1))
+            : 0;
+
+        // Read persisted accordion state (default: open)
+        let promptOpen = true;
+        try { promptOpen = localStorage.getItem('et_lightbox_prompt_open') !== 'false'; } catch (e) {}
+
+        const safePrompt = String(promptText || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const safeTitle = titleText ? String(titleText).replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+
+        // Prompt panel — always rendered so navigateTo can update it in-place;
+        // hidden via class when the current item has no prompt.
+        const promptPanelClass = `et-lightbox-prompt-panel${safePrompt ? (promptOpen ? ' et-lightbox-prompt-open' : '') : ' et-lightbox-prompt-hidden'}`;
+        const promptHtml = `
+            <div class="${promptPanelClass}">
+                <button class="et-lightbox-prompt-toggle" title="${promptOpen ? 'Hide prompt' : 'Show prompt'}">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span>Image Prompt</span>
+                    <i class="fa-solid fa-chevron-down et-lightbox-prompt-chevron"></i>
+                </button>
+                <div class="et-lightbox-prompt-body">
+                    <p class="et-lightbox-prompt-text">${safePrompt}</p>
+                </div>
+            </div>`;
+
+        const navHtml = navItems ? `
+                    <button class="et-lightbox-nav et-lightbox-nav-prev" title="Previous image" aria-label="Previous image"${currentNavIndex === 0 ? ' disabled' : ''}><i class="fa-solid fa-chevron-left"></i></button>
+                    <button class="et-lightbox-nav et-lightbox-nav-next" title="Next image" aria-label="Next image"${currentNavIndex === navItems.length - 1 ? ' disabled' : ''}><i class="fa-solid fa-chevron-right"></i></button>` : '';
+
+        const counterHtml = navItems
+            ? `<span class="et-lightbox-nav-counter">${currentNavIndex + 1} / ${navItems.length}</span>`
+            : '';
+
+        const lightbox = jQuery(`
+            <div id="et-generated-image-lightbox" class="et-generated-image-lightbox-overlay">
+                <div class="et-lightbox-container">
+                    <button class="et-lightbox-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                    ${counterHtml}
+                    <div class="et-lightbox-img-wrap">
+                        <img src="${imageUrl}" class="et-lightbox-img" alt="Generated image" />
+                        ${navHtml}
+                    </div>
+                    <div class="et-lightbox-title-bar${safeTitle ? '' : ' et-lightbox-title-bar-hidden'}"><i class="fa-regular fa-image"></i><span>${safeTitle}</span></div>
+                    ${promptHtml}
+                </div>
+            </div>
+        `);
+
+        // On mobile the panel lives inside the portal on <html>, so anything
+        // appended to <body> renders behind it. Append the lightbox to the
+        // portal directly so it stacks above the panel.
+        (isMobileDevice() ? jQuery(ensurePortal()) : jQuery('body')).append(lightbox);
+        requestAnimationFrame(() => lightbox.addClass('et-generated-image-lightbox-open'));
+
+        // ── Navigation ────────────────────────────────────────────────────────
+        function navigateTo(idx) {
+            if (!navItems) return;
+            const clamped = Math.max(0, Math.min(idx, navItems.length - 1));
+            if (clamped === currentNavIndex) return;
+            const dir = idx > currentNavIndex ? 'fwd' : 'bck';
+            currentNavIndex = clamped;
+            const item = navItems[currentNavIndex];
+
+            const wrap = lightbox.find('.et-lightbox-img-wrap');
+            const img = lightbox.find('.et-lightbox-img');
+            wrap.attr('data-nav-dir', dir);
+            img.addClass('et-lightbox-img-nav-fade');
+            setTimeout(() => {
+                img.attr('src', item.url)
+                   .removeClass('et-lightbox-img-nav-fade')
+                   .addClass('et-lightbox-img-nav-in');
+                setTimeout(() => img.removeClass('et-lightbox-img-nav-in'), 300);
+
+                lightbox.find('.et-lightbox-nav-counter').text(`${currentNavIndex + 1} / ${navItems.length}`);
+
+                const titleBar = lightbox.find('.et-lightbox-title-bar');
+                if (item.title) {
+                    titleBar.removeClass('et-lightbox-title-bar-hidden').find('span').text(item.title);
+                } else {
+                    titleBar.addClass('et-lightbox-title-bar-hidden');
+                }
+
+                const promptPanel = lightbox.find('.et-lightbox-prompt-panel');
+                if (item.prompt) {
+                    promptPanel.removeClass('et-lightbox-prompt-hidden');
+                    promptPanel.find('.et-lightbox-prompt-text').text(item.prompt);
+                } else {
+                    promptPanel.addClass('et-lightbox-prompt-hidden');
+                }
+
+                lightbox.find('.et-lightbox-nav-prev').prop('disabled', currentNavIndex === 0);
+                lightbox.find('.et-lightbox-nav-next').prop('disabled', currentNavIndex === navItems.length - 1);
+            }, 150);
+        }
+
+        if (navItems) {
+            lightbox.find('.et-lightbox-nav-prev').on('click', function (e) {
+                e.stopPropagation();
+                navigateTo(currentNavIndex - 1);
+            });
+            lightbox.find('.et-lightbox-nav-next').on('click', function (e) {
+                e.stopPropagation();
+                navigateTo(currentNavIndex + 1);
+            });
+        }
+
+        // Accordion toggle
+        lightbox.find('.et-lightbox-prompt-toggle').on('click', function (e) {
+            e.stopPropagation();
+            const panel = lightbox.find('.et-lightbox-prompt-panel');
+            const isOpen = panel.hasClass('et-lightbox-prompt-open');
+            panel.toggleClass('et-lightbox-prompt-open', !isOpen);
+            lightbox.find('.et-lightbox-prompt-toggle').attr('title', isOpen ? 'Show prompt' : 'Hide prompt');
+            try { localStorage.setItem('et_lightbox_prompt_open', String(!isOpen)); } catch (e) {}
+        });
+
+        // ── Close helpers ─────────────────────────────────────────────────────
+        function closeLightbox() {
+            lightbox.removeClass('et-generated-image-lightbox-open');
+            setTimeout(() => lightbox.remove(), 280);
+            jQuery(document).off('keydown', keyHandler);
+        }
+
+        // Close on click anywhere outside the prompt, title bar, or nav buttons
+        const closeHandler = (e) => {
+            const $t = jQuery(e.target);
+            if ($t.closest('.et-lightbox-prompt-panel').length ||
+                $t.closest('.et-lightbox-title-bar').length ||
+                $t.closest('.et-lightbox-nav').length) return;
+            closeLightbox();
+        };
+        lightbox.on('click', closeHandler);
+
+        // ── Keyboard navigation ───────────────────────────────────────────────
+        const keyHandler = (e) => {
+            if (e.key === 'Escape') {
+                closeLightbox();
+            } else if (e.key === 'ArrowLeft') {
+                navigateTo(currentNavIndex - 1);
+            } else if (e.key === 'ArrowRight') {
+                navigateTo(currentNavIndex + 1);
+            }
+        };
+        jQuery(document).on('keydown', keyHandler);
+
+        // ── Touch swipe navigation (mobile) ──────────────────────────────────
+        if (navItems) {
+            let touchStartX = 0, touchStartY = 0;
+            lightbox[0].addEventListener('touchstart', function (e) {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }, { passive: true });
+            lightbox[0].addEventListener('touchend', function (e) {
+                const dx = e.changedTouches[0].clientX - touchStartX;
+                const dy = e.changedTouches[0].clientY - touchStartY;
+                if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 45) {
+                    if (dx < 0) navigateTo(currentNavIndex + 1); // swipe left → next
+                    else        navigateTo(currentNavIndex - 1); // swipe right → prev
+                }
+            }, { passive: true });
+        }
+    }
+
     // Track which delete button is pending 2nd click
     let deleteConfirmIndex = -1;
     let deleteConfirmTimer = null;
 
-    function renderMessages(history) {
+    function renderMessages(history, preserveScroll = false) {
         const inner = jQuery('#et-messages-inner');
         if (!inner.length) return;
+
+        const messagesEl = document.getElementById('et-messages');
+        const savedScrollTop = (preserveScroll && messagesEl) ? messagesEl.scrollTop : null;
 
         inner.empty();
 
@@ -2431,40 +4833,65 @@
                             <span class="et-message-time" title="${fullDateToolip}">${time}</span>
                             <span class="et-user-name">${safeUserName}</span>
                             ${buildReceiptHtml(msg)}
-                            <button class="et-dots-btn" data-index="${index}" data-is-user="1" title="More options"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                            <div class="et-bubble-actions">
+                                <button class="et-dots-btn" data-index="${index}" data-is-user="1" title="More options"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                            </div>
                         </div>
                     </div>
+                    <div class="et-char-reaction-bar" id="et-char-reaction-${index}"></div>
                 </div>`;
             } else {
-                const safeCharName = DOMPurify.sanitize(charName, { ALLOWED_TAGS: [] });
-                // Avatar left of char name in a pill
-                const avatarHtml = settings.showAvatar !== false
-                    ? buildAvatarHtml(charName, 'et-bubble-avatar et-bubble-avatar-footer', '', true)
-                    : '';
+                // ── Combine mode: each character message may carry its own name + avatar ──
+                const inCombineMode = groupManager && groupManager.isGroupSession() && groupManager.isCombineMode();
+                const msgSenderName = (inCombineMode && msg.charName) ? msg.charName : charName;
+                const safeCharName = DOMPurify.sanitize(msgSenderName, { ALLOWED_TAGS: [] });
 
-                // Verbosity indicator for this character
+                // Avatar — use the specific character's avatar in combine mode
+                const showAvatar = settings.showAvatar !== false;
+                let avatarHtml = '';
+                if (showAvatar) {
+                    if (inCombineMode && msg.charKey && groupManager) {
+                        const msgChar = groupManager.getGroupMemberByKey(msg.charKey);
+                        if (msgChar) {
+                            avatarHtml = groupManager.buildAvatarHtmlForChar(
+                                msgChar, 'et-bubble-avatar et-bubble-avatar-footer', '', true);
+                        } else {
+                            avatarHtml = buildAvatarHtml(msgSenderName, 'et-bubble-avatar et-bubble-avatar-footer', '', true);
+                        }
+                    } else {
+                        avatarHtml = buildAvatarHtml(msgSenderName, 'et-bubble-avatar et-bubble-avatar-footer', '', true);
+                    }
+                }
+
+                // Verbosity indicator
                 const charKey = getCharacterKey();
                 const verbosity = charKey && settings.verbosityByCharacter ? settings.verbosityByCharacter[charKey] : null;
                 const verbosityLabels = { short: '📏', medium: '📋', long: '📜' };
+                const verbosityTooltips = {
+                    short: 'Short: Concise and direct replies',
+                    medium: 'Medium: Standard conversational pace',
+                    long: 'Long: Expansive, detailed responses'
+                };
                 const verbosityBadge = verbosity && verbosity !== 'medium'
-                    ? `<span class="et-verbosity-badge" title="Verbosity: ${verbosity}">${verbosityLabels[verbosity] || ''}</span>` : '';
+                    ? `<span class="et-verbosity-badge" title="${verbosityTooltips[verbosity] || 'Verbosity'}">${verbosityLabels[verbosity] || ''}</span>` : '';
 
                 bubbleHtml = `
                 <div class="et-message et-message-char" data-index="${index}">
                     <div class="et-message-body">
                         <div class="et-bubble et-bubble-char">
                             <div class="et-bubble-text">${formattedText}</div>
+                            ${buildImageAttachmentHtml(msg, index)}
                             <div class="et-message-footer">
-                                <button class="et-char-info-pill" title="View Chat Influence">
+                                <div class="et-char-info-pill${showAvatar ? '' : ' et-pill-no-avatar'}">
                                     ${avatarHtml}
                                     <span class="et-footer-name">${safeCharName}</span>
-                                </button>
+                                </div>
                                 <span class="et-message-time" title="${fullDateToolip}">${time}</span>
                                 ${verbosityBadge}
-                            </div>
-                            <div class="et-bubble-actions">
-                                <button class="et-react-btn" data-index="${index}" title="React"><i class="fa-regular fa-face-smile"></i></button>
-                                <button class="et-dots-btn" data-index="${index}" data-is-user="0" title="More options"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                <div class="et-bubble-actions">
+                                    <button class="et-react-btn" data-index="${index}" title="React"><i class="fa-regular fa-face-smile"></i></button>
+                                    <button class="et-dots-btn" data-index="${index}" data-is-user="0" title="More options"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                </div>
                             </div>
                         </div>
                         <div class="et-bubble-reactions-bar" id="et-reactions-bar-${index}">
@@ -2476,8 +4903,19 @@
 
             inner.append(bubbleHtml);
 
+            // Apply memory highlights to user bubbles
+            if (isUser && msg.memoryHighlights && msg.memoryHighlights.length > 0
+                    && settings.memoryEnabled && settings.memoryAutoExtract) {
+                try { applyMemoryHighlights(inner.children().last(), msg); } catch (e) { /* ignore */ }
+            }
+
             if (!isUser) {
                 renderStoredReactions(index, msg);
+            }
+
+            // Restore persisted character reactions on user bubbles
+            if (isUser && msg.charReaction) {
+                renderCharacterReaction(index, msg.charReaction);
             }
         });
 
@@ -2523,9 +4961,39 @@
             toggleDotsMenu(btn, msgIndex, isUser, tethered);
         });
 
-        if (settings.autoScroll) {
-            const messagesEl = document.getElementById('et-messages');
-            if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+        inner.find('.et-image-attachment-ready').on('click', function (e) {
+            e.stopPropagation();
+            const idx = parseInt(jQuery(this).data('image-index'), 10);
+            const msg = history[idx];
+            // Build nav context from all messages with image attachments (in chat order)
+            const navItems = history
+                .filter(m => m?.imageAttachment?.url)
+                .map(m => ({ url: m.imageAttachment.url, prompt: m.imageAttachment.prompt || '' }));
+            const currentUrl = msg?.imageAttachment?.url || '';
+            const navIndex = navItems.findIndex(x => x.url === currentUrl);
+            openGeneratedImageLightbox(
+                currentUrl,
+                msg?.imageAttachment?.prompt || '',
+                { navItems, navIndex: navIndex >= 0 ? navIndex : 0 }
+            );
+        });
+
+        if (preserveScroll && messagesEl && savedScrollTop !== null) {
+            // Restore the scroll position the user was at before the edit re-render
+            messagesEl.scrollTop = savedScrollTop;
+        } else if (settings.autoScroll) {
+            if (messagesEl) {
+                // Initial immediate scroll for text/avatars
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+
+                // Re-scroll when images (specifically generated images) finish loading
+                // so they don't break the auto-scroll flow by pushing text up.
+                inner.find('img').on('load', function () {
+                    if (settings.autoScroll) {
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                    }
+                });
+            }
         }
     }
 
@@ -2716,7 +5184,7 @@
                 history[msgIndex].mes = newText;
                 saveChatHistory(history);
                 finishEdit();
-                renderMessages(history);
+                renderMessages(history, true);
             });
 
             toolbar.find('.et-edit-cancel').on('click', () => {
@@ -2803,18 +5271,50 @@
 
         if (action === 'regen') {
             closeAllDotMenus();
+
+            const inCombineMode = !!(groupManager && groupManager.isGroupSession() && groupManager.isCombineMode());
+
             if (isUser) {
-                // Re-send: truncate history to before this user message and regenerate
+                // Re-send: truncate to just before this user message and regenerate all
                 const truncated = history.slice(0, msgIndex + 1);
                 saveChatHistory(truncated);
                 renderMessages(truncated);
-                generateEchoText(truncated);
+                if (inCombineMode) {
+                    generateEchoTextCombined(truncated);
+                } else {
+                    generateEchoText(truncated);
+                }
             } else {
-                // Remove last char message and regenerate from the preceding history
-                const truncated = history.slice(0, msgIndex);
-                saveChatHistory(truncated);
-                renderMessages(truncated);
-                generateEchoText(truncated);
+                if (inCombineMode) {
+                    // ── Combined mode: regenerate only the specific character whose
+                    // bubble was clicked, leaving all other characters' responses intact.
+                    //
+                    // History around the target (e.g. Joi at msgIndex 2):
+                    //   [0] user msg
+                    //   [1] Amy's response   ← historyBefore
+                    //   [2] Joi's response   ← removed (being regenerated)
+                    //   [3] Iris's response  ← historyAfter
+                    //
+                    // We pass historyBefore as the generation context and historyAfter
+                    // so the new reply can be stitched back into the correct position.
+                    const historyBefore = history.slice(0, msgIndex);
+                    const historyAfter  = history.slice(msgIndex + 1);
+
+                    // Show the gap immediately (target message disappears, others stay)
+                    const previewHistory = [...historyBefore, ...historyAfter];
+                    saveChatHistory(previewHistory);
+                    renderMessages(previewHistory);
+
+                    const targetCharKey = history[msgIndex]?.charKey
+                        || groupManager.getActiveCharKey();
+                    generateEchoTextCombinedForChar(historyBefore, historyAfter, targetCharKey);
+                } else {
+                    // Solo mode: remove message and regenerate normally
+                    const truncated = history.slice(0, msgIndex);
+                    saveChatHistory(truncated);
+                    renderMessages(truncated);
+                    generateEchoText(truncated);
+                }
             }
             return;
         }
@@ -3171,6 +5671,8 @@
     // ============================================================
 
     function toggleUntetheredPopup(targetEl) {
+        jQuery('#et-emotion-popup').remove();
+        jQuery(document).off('click.et-emo-popup');
         if (untetheredChat) untetheredChat.toggleUntetheredPopup(targetEl);
     }
 
@@ -3184,8 +5686,246 @@
     // ============================================================
 
     function buildInsideJokesContext() {
-        if (!memorySystem || !isTetheredMode()) return '';
+        if (!memorySystem) return '';
         return memorySystem.buildInsideJokesContext();
+    }
+
+    /**
+     * Walk all text nodes inside `element`, find the first occurrence of
+     * `searchStr`, and wrap it with a styled <mark> tag for memory highlighting.
+     */
+    function _highlightTextNode(element, searchStr, category, label, style) {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+            const idx = node.nodeValue.indexOf(searchStr);
+            if (idx === -1) continue;
+            const before = node.nodeValue.substring(0, idx);
+            const after  = node.nodeValue.substring(idx + searchStr.length);
+            const mark   = document.createElement('mark');
+            mark.className = `et-mem-highlight et-mem-hl-${style}`;
+            mark.dataset.memCategory = category;
+            mark.dataset.memLabel    = label;
+            mark.dataset.memContent  = searchStr;
+            mark.textContent = searchStr;
+            const parent = node.parentNode;
+            if (before) parent.insertBefore(document.createTextNode(before), node);
+            parent.insertBefore(mark, node);
+            if (after)  parent.insertBefore(document.createTextNode(after),  node);
+            parent.removeChild(node);
+            return true; // first occurrence only
+        }
+        return false;
+    }
+
+    /**
+     * Apply memory highlight marks to the .et-bubble-text inside `bubbleEl`
+     * for the given message's highlight candidates.
+     */
+    function applyMemoryHighlights(bubbleEl, msg) {
+        if (!bubbleEl || !msg.memoryHighlights || !msg.memoryHighlights.length) return;
+        const style      = (settings.memoryHighlightStyle || 'underline');
+        const bubbleText = bubbleEl.find('.et-bubble-text')[0];
+        if (!bubbleText) return;
+        msg.memoryHighlights.forEach(function (hl) {
+            try { _highlightTextNode(bubbleText, hl.text, hl.category, hl.label, style); } catch (e) { /* ignore */ }
+        });
+    }
+
+    /**
+     * Update the highlight style class on existing marks live (called when the
+     * user changes their preferred highlight style in settings).
+     */
+    function updateMemoryHighlightStyleInPanel(newStyle) {
+        const allStyles = ['et-mem-hl-underline', 'et-mem-hl-glow', 'et-mem-hl-shimmer', 'et-mem-hl-border'];
+        jQuery('#et-messages-inner .et-mem-highlight').each(function () {
+            const el = jQuery(this);
+            el.removeClass(allStyles.join(' '));
+            el.addClass('et-mem-hl-' + newStyle);
+        });
+    }
+
+    const _MEM_CATEGORY_LABELS = {
+        inside_joke:    'Inside Joke',
+        person:         'Important Person',
+        hobby:          'Hobby / Interest',
+        favorite_thing: 'Favorite Thing',
+        shared_moment:  'Shared Moment',
+        custom:         'Custom'
+    };
+
+    /**
+     * Show the "Save as Memory?" glassmorphism modal when a user clicks a
+     * highlighted memory span.
+     */
+    function showMemorySaveModal(el) {
+        const $el     = jQuery(el);
+        const category = $el.data('mem-category') || 'custom';
+        const label    = $el.data('mem-label')    || '';
+        const content  = $el.data('mem-content')  || $el.text();
+
+        jQuery('#et-mem-save-modal').remove();
+        jQuery('#et-mem-save-modal-overlay').remove();
+
+        const { DOMPurify } = SillyTavern.libs;
+        const safeContent   = DOMPurify.sanitize(content, { ALLOWED_TAGS: [] });
+        const safeLabelHint = DOMPurify.sanitize(label,   { ALLOWED_TAGS: [] }); // used as placeholder only
+
+        // Pill scope toggle — always defaults to per-character
+        const charNameFn = window._etGetCharacterName;
+        const charName   = typeof charNameFn === 'function' ? charNameFn() : null;
+        const safeCharName = DOMPurify.sanitize(charName || 'Character', { ALLOWED_TAGS: [] });
+
+        const scopePillHtml = `
+            <div class="et-mem-scope-pill-wrap">
+                <button class="et-mem-scope-seg et-mem-scope-seg-active" data-scope="per-character" type="button">
+                    <i class="fa-solid fa-user"></i> ${safeCharName}
+                </button>
+                <button class="et-mem-scope-seg" data-scope="global" type="button">
+                    <i class="fa-solid fa-globe"></i> Global
+                </button>
+            </div>`;
+
+        const catOptions = Object.entries(_MEM_CATEGORY_LABELS).map(([k, v]) =>
+            `<option value="${k}"${k === category ? ' selected' : ''}>${v}</option>`
+        ).join('');
+
+        const html = `
+        <div id="et-mem-save-modal-overlay" class="et-mem-save-modal-overlay"></div>
+        <div id="et-mem-save-modal" class="et-mem-save-modal">
+            <div class="et-mem-save-header">
+                <i class="fa-solid fa-brain"></i>
+                <span>Save as Memory?</span>
+            </div>
+            <div class="et-mem-save-snippet">${safeContent}</div>
+            ${scopePillHtml}
+            <div class="et-mem-save-fields">
+                <div class="et-select-wrapper">
+                    <select class="et-select et-mem-save-category">${catOptions}</select>
+                    <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                </div>
+                <input type="text" class="et-input-text et-mem-save-label" value="" placeholder="${safeLabelHint || 'Give it a name (optional)'}">
+            </div>
+            <label class="et-mem-form-pin-row" style="margin:10px 0 4px;">
+                <input type="checkbox" class="checkbox et-mem-save-pin">
+                <span><i class="fa-solid fa-thumbtack"></i> Pin — always inject this memory</span>
+            </label>
+            <div class="et-mem-save-actions">
+                <button class="et-mem-save-btn et-mem-save-btn-save" id="et-mem-save-confirm" type="button">
+                    <i class="fa-solid fa-check"></i> Save Memory
+                </button>
+                <button class="et-mem-save-btn et-mem-save-btn-dismiss" id="et-mem-save-dismiss" type="button">
+                    Dismiss
+                </button>
+            </div>
+        </div>`;
+
+        const panel = jQuery('#et-panel');
+        panel.append(html);
+        requestAnimationFrame(() => jQuery('#et-mem-save-modal').addClass('et-mem-save-modal-open'));
+
+        // Pill scope toggle
+        jQuery('#et-mem-save-modal').on('click', '.et-mem-scope-seg', function () {
+            jQuery('#et-mem-save-modal .et-mem-scope-seg').removeClass('et-mem-scope-seg-active');
+            jQuery(this).addClass('et-mem-scope-seg-active');
+        });
+
+        function closeModal() {
+            const modal   = jQuery('#et-mem-save-modal');
+            const overlay = jQuery('#et-mem-save-modal-overlay');
+            modal.removeClass('et-mem-save-modal-open');
+            setTimeout(() => { modal.remove(); overlay.remove(); }, 220);
+        }
+
+        jQuery('#et-mem-save-confirm').on('click', function () {
+            const cat         = jQuery('#et-mem-save-modal .et-mem-save-category').val();
+            const lbl         = jQuery('#et-mem-save-modal .et-mem-save-label').val().trim();
+            const pin         = jQuery('#et-mem-save-modal .et-mem-save-pin').is(':checked');
+            const chosenScope = jQuery('#et-mem-save-modal .et-mem-scope-seg-active').data('scope') || 'per-character';
+            if (memorySystem) {
+                const saved = memorySystem.addMemory({ category: cat, label: lbl, content: content, pinned: pin, scope: chosenScope });
+                if (saved) {
+                    $el.attr('data-mem-id', saved.id).attr('data-mem-scope', chosenScope);
+                }
+            }
+            $el.addClass('et-mem-highlight-saved');
+            // Refresh open memory lists
+            if (settingsModal && typeof settingsModal.renderMemoryListInto === 'function') {
+                settingsModal.renderMemoryListInto('#et_memory_list',       '#et_memory_empty',       '#et_memory_list_label');
+                settingsModal.renderMemoryListInto('#et_memory_list_panel', '#et_memory_empty_panel', '#et_memory_list_label_panel');
+            }
+            toastr.success('Memory saved!');
+            closeModal();
+        });
+
+        jQuery('#et-mem-save-dismiss').on('click', closeModal);
+        jQuery('#et-mem-save-modal-overlay').on('click', closeModal);
+
+        // Escape key
+        const onKey = (e) => { if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); closeModal(); } };
+        document.addEventListener('keydown', onKey);
+    }
+
+    /**
+     * Show a small "Remove Memory?" modal when the user re-clicks a saved highlight.
+     */
+    function showMemoryRemoveModal(el) {
+        const $el     = jQuery(el);
+        const memId   = $el.attr('data-mem-id') || null;
+        const content = $el.data('mem-content') || $el.text();
+
+        jQuery('#et-mem-save-modal').remove();
+        jQuery('#et-mem-save-modal-overlay').remove();
+
+        const { DOMPurify } = SillyTavern.libs;
+        const safeContent = DOMPurify.sanitize(content, { ALLOWED_TAGS: [] });
+
+        const html = `
+        <div id="et-mem-save-modal-overlay" class="et-mem-save-modal-overlay"></div>
+        <div id="et-mem-save-modal" class="et-mem-save-modal">
+            <div class="et-mem-save-header">
+                <i class="fa-solid fa-circle-check" style="color:#4ade80;"></i>
+                <span>Memory Saved</span>
+            </div>
+            <div class="et-mem-save-snippet">${safeContent}</div>
+            <div class="et-mem-remove-hint">This phrase is already saved as a memory. Would you like to remove it?</div>
+            <div class="et-mem-save-actions">
+                <button class="et-mem-save-btn et-mem-save-btn-remove" id="et-mem-remove-confirm" type="button">
+                    <i class="fa-solid fa-trash-can"></i> Remove Memory
+                </button>
+                <button class="et-mem-save-btn et-mem-save-btn-dismiss" id="et-mem-save-dismiss" type="button">
+                    Keep It
+                </button>
+            </div>
+        </div>`;
+
+        jQuery('#et-panel').append(html);
+        requestAnimationFrame(() => jQuery('#et-mem-save-modal').addClass('et-mem-save-modal-open'));
+
+        function closeModal() {
+            const modal   = jQuery('#et-mem-save-modal');
+            const overlay = jQuery('#et-mem-save-modal-overlay');
+            modal.removeClass('et-mem-save-modal-open');
+            setTimeout(() => { modal.remove(); overlay.remove(); }, 220);
+        }
+
+        jQuery('#et-mem-remove-confirm').on('click', function () {
+            if (memorySystem && memId) {
+                memorySystem.deleteMemory(memId);
+            }
+            $el.removeClass('et-mem-highlight-saved').removeAttr('data-mem-id').removeAttr('data-mem-scope');
+            if (settingsModal && typeof settingsModal.renderMemoryListInto === 'function') {
+                settingsModal.renderMemoryListInto('#et_memory_list',       '#et_memory_empty',       '#et_memory_list_label');
+                settingsModal.renderMemoryListInto('#et_memory_list_panel', '#et_memory_empty_panel', '#et_memory_list_label_panel');
+            }
+            toastr.success('Memory removed.');
+            closeModal();
+        });
+
+        jQuery('#et-mem-save-dismiss').on('click', closeModal);
+        jQuery('#et-mem-save-modal-overlay').on('click', closeModal);
+        const onKey = (e) => { if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); closeModal(); } };
+        document.addEventListener('keydown', onKey);
     }
 
     // ============================================================
@@ -3194,6 +5934,7 @@
 
     function openSaveLoadModal() {
         if (saveLoadModal) saveLoadModal.openSaveLoadModal();
+        moveModalToPortal('#et-sl-overlay');
     }
 
     // ============================================================
@@ -3236,14 +5977,35 @@
             isPanelOpen,
             isTetheredMode,
             findLastUserMessageIndex,
-            expandTimeDateMacros
+            expandTimeDateMacros,
+            baseUrl: BASE_URL,
+            onEmotionStateUpdated: ({ dominant, dominantChanged }) => {
+                if (!panelOpen || !isTetheredMode()) return;
+                updatePanelStatusRow();
+                if (dominantChanged) {
+                    requestAnimationFrame(() => {
+                        const chip = document.querySelector('.et-status-chip-emotion');
+                        if (!chip) return;
+                        chip.style.setProperty('--dominant-shift-color', dominant.color);
+                        chip.classList.remove('et-dominant-shift');
+                        void chip.offsetWidth; // force reflow
+                        chip.classList.add('et-dominant-shift');
+                    });
+                }
+            }
         });
 
         untetheredChat = window.EchoTextUntetheredChat.createUntetheredChat({
             getSettings: () => settings,
             saveSettings,
             getCharacterName,
-            getCharacterKey
+            getCharacterKey,
+            onStateChange: () => {
+                // Update the untethered status row when influence settings change
+                if (panelOpen && !isTetheredMode()) {
+                    updatePanelStatusRow();
+                }
+            }
         });
 
         settingsModal = window.EchoTextSettingsModal.createSettingsModal({
@@ -3254,11 +6016,13 @@
             applyAppearanceSettings,
             populateConnectionProfiles,
             fetchOllamaModels,
+            fetchMultimodalModels,
             initCustomDropdowns,
             initCustomDropdownPanel,
             toggleEchoTextMaster,
             updateProviderVisibility,
             updateProviderVisibilityPanel,
+            updateImageGenerationVisibility,
             getChatHistory,
             renderMessages,
             isPanelOpen,
@@ -3266,13 +6030,13 @@
             updateProactiveToggleButtons,
             startProactiveScheduler,
             triggerTestProactiveMessage,
+            applyActivityMode,
             positionFab,
             buildThemeDropdownHtml,
             buildFontDropdownHtml,
-            loadGoogleFont
+            loadGoogleFont,
+            updatePanelStatusRow
         });
-
-        console.log('EchoText Debug - settingsModal created:', settingsModal);
 
         memorySystem = window.EchoTextMemorySystem.createMemorySystem({
             getSettings: () => settings,
@@ -3280,6 +6044,12 @@
             getCharacterKey,
             isTetheredMode
         });
+
+        // Expose character accessor helpers for the settings-modal memory UI
+        window._etGetCharacterKey  = getCharacterKey;
+        window._etGetCharacterName = getCharacterName;
+        // Expose live highlight style updater for settings-modal delegation
+        window._etUpdateMemoryHlStyle = updateMemoryHighlightStyleInPanel;
 
         saveLoadModal = window.EchoTextSaveLoadModal.createSaveLoadModal({
             getSettings: () => settings,
@@ -3294,7 +6064,58 @@
             isPanelOpen,
             isGroupSession: () => groupManager ? groupManager.isGroupSession() : false,
             captureGroupSnapshot: () => groupManager ? groupManager.captureGroupSnapshot(settings) : null,
-            restoreGroupSnapshot: (snap) => { if (groupManager) groupManager.restoreGroupSnapshot(snap, settings); }
+            restoreGroupSnapshot: (snap) => { if (groupManager) groupManager.restoreGroupSnapshot(snap, settings); },
+            isCombineMode: () => groupManager ? groupManager.isCombineMode() : false,
+            getCurrentGroupId: () => groupManager ? groupManager.getCurrentGroupId() : null,
+            // Refreshes the panel status row after an untethered save is loaded,
+            // so the mood/personality/style chips reflect the restored influence state.
+            onUntetheredRestored: () => { if (panelOpen) updatePanelStatusRow(); }
+        });
+
+        imageGeneration = window.EchoTextImageGeneration.createImageGeneration({
+            getSettings,
+            getCurrentCharacter,
+            getCharacterName,
+            getCharacterKey,
+            getUserName,
+            requestSillyTavernImageGeneration,
+            requestEchoTextCompletion,
+            saveSettings,
+            log,
+            warn
+        });
+
+        characterPicker = window.EchoTextCharacterPicker.createCharacterPicker({
+            getSettings: getSettings,
+            saveSettings,
+            escapeHtml,
+            getCharacterKey,
+            getGroupManager: () => groupManager,
+            applySelectedCharacterToPanel,
+            setSelectedCharacterKey: (key) => {
+                selectedCharacterKey = key;
+                if (key) {
+                    settings.lastCharacterKey = key;
+                    saveSettings();
+                }
+            },
+            getSelectedCharacterKey: () => selectedCharacterKey,
+            isPanelOpen: () => panelOpen,
+            isMobileDevice: () => isMobileDevice(),
+            renderGroupUnreadIndicators: () => { if (typeof renderGroupUnreadIndicators === 'function') renderGroupUnreadIndicators(); },
+            getSwitchGroupCharFn: () => (typeof switchGroupChar === 'function' ? switchGroupChar : null),
+            getOnCombineModeToggleFn: () => (typeof onCombineModeToggle === 'function' ? onCombineModeToggle : null),
+            getTriggerManualCombineCharFn: () => (typeof triggerManualCombineChar === 'function' ? triggerManualCombineChar : null)
+        });
+
+        gallery = window.EchoTextGallery.createGallery({
+            getSettings,
+            saveSettings,
+            getCurrentCharacter,
+            getCharacterKey,
+            getCharacterName,
+            getAvatarUrlForCharacter,
+            openGeneratedImageLightbox
         });
 
         groupManager = window.EchoTextGroupManager.createGroupManager({
@@ -3320,7 +6141,13 @@
             requestEchoTextCompletion,
             buildApiMessagesFromHistory,
             buildApiMessagesFromHistoryForChar,
+            // Exposes image-request detection so proactive messaging can also hide
+            // image-triggering user messages from the character's context window.
+            detectImageRequest: (msg, hist) => imageGeneration
+                ? imageGeneration.detectImageRequest(msg, hist)
+                : { triggered: false },
             expandTimeDateMacros,
+            replaceMacros,
             isPanelOpen,
             getIsGenerating,
             // Group session helpers for multi-character proactive scheduling
@@ -3333,12 +6160,53 @@
                     groupManager.markGroupCharUnread(key);
                     renderGroupUnreadIndicators();
                 }
+            },
+            // Combined mode flag and group-scoped history accessors.
+            // These allow the proactive scheduler to read/write the correct
+            // history store regardless of session type.
+            isCombineMode:        () => groupManager ? groupManager.isCombineMode()          : false,
+            getCurrentGroupId:    () => groupManager ? groupManager.getCurrentGroupId()       : null,
+            getGroupChatHistory:  (groupId, charKey, untethered) =>
+                groupManager ? groupManager.getGroupChatHistory(groupId, charKey, untethered)  : [],
+            saveGroupChatHistory: (groupId, charKey, history, untethered) => {
+                if (groupManager) groupManager.saveGroupChatHistory(groupId, charKey, history, untethered);
+            },
+            getCombineHistory:    (groupId, untethered) =>
+                groupManager ? groupManager.getCombineHistory(groupId, untethered)             : [],
+            saveCombineHistory:   (groupId, history, untethered) => {
+                if (groupManager) groupManager.saveCombineHistory(groupId, history, untethered);
             }
+        });
+
+        stContextEmotion = window.EchoTextSTContextEmotion.createSTContextEmotion({
+            getSettings: () => settings,
+            getCurrentCharacter,
+            getCharacterKey,
+            getChatHistory,
+            isTetheredMode,
+            apiAnalyzeTextEmotionRaw: (text, isUser) => emotionSystem ? emotionSystem.apiAnalyzeTextEmotionRaw(text, isUser) : null,
+            applyEmotionDelta: (deltas, source, reason) => {
+                if (emotionSystem) emotionSystem.applyEmotionDelta(deltas, source, reason);
+            },
+            getEmotionState: () => emotionSystem ? emotionSystem.getEmotionState() : null,
+            log,
+            warn
         });
 
         FA_REACTIONS = emotionSystem.FA_REACTIONS;
 
         loadSettings();
+
+        // Inject mobile-specific stylesheet when running on a touch device.
+        // Done AFTER loadSettings() so BASE_URL is guaranteed to be resolved.
+        if (isMobileDevice() && !document.getElementById('et-mobile-styles')) {
+            const mobileLink = document.createElement('link');
+            mobileLink.rel  = 'stylesheet';
+            mobileLink.id   = 'et-mobile-styles';
+            mobileLink.href = `${BASE_URL}/mobile-style.css${VERSION_QUERY}`;
+            document.head.appendChild(mobileLink);
+        }
+
         startProactiveScheduler();
 
         jQuery('body').append(buildFabHtml());
@@ -3346,22 +6214,71 @@
         makeFabDraggable();
         setFabUnreadIndicator(false);
 
+        // Ensure the portal exists so the FAB is a sibling of <body>, not a
+        // child. This escapes SillyTavern's mobile-styles.css rule:
+        //   body { position: fixed; overflow: hidden; }
+        // which would otherwise make position:fixed children mis-positioned.
+        ensurePortal();
+        const fabEl = document.getElementById('et-fab');
+        if (fabEl) document.getElementById(ET_PORTAL_ID).appendChild(fabEl);
+
         jQuery('#et-fab').on('click', function () {
             if (fabDragging) return;
             if (panelOpen) closePanel();
             else openPanel();
         });
 
-        jQuery(document).on('click', '#et-open-settings-btn', () => settingsModal.openSettingsModal());
+        jQuery(document).on('click', '#et-open-settings-btn', () => {
+            settingsModal.openSettingsModal();
+            moveModalToPortal('.et-settings-modal');
+        });
 
         toggleEchoTextMaster();
 
-        if (settings.enabled && settings.autoOpenOnReload) {
+        if (settings.enabled && settings.autoOpenOnReload && settings.panelWasOpen !== false) {
             openPanel();
         }
 
+        // Setup a polling mechanism to auto-load the last character since CHAT_CHANGED may never fire
+        // if SillyTavern starts without an active chat.
+        if (settings.enabled && settings.autoLoadLastCharacter && settings.lastCharacterKey) {
+            let loadAttempts = 0;
+            const autoLoadInterval = setInterval(() => {
+                loadAttempts++;
+                const chars = getAllCharactersForPicker();
+                if (chars && chars.length > 0) {
+                    clearInterval(autoLoadInterval);
+                    if (!selectedCharacterKey) {
+                        const match = chars.find(c => c.__key === settings.lastCharacterKey);
+                        if (match) {
+                            selectedCharacterKey = settings.lastCharacterKey;
+                            if (panelOpen) {
+                                applySelectedCharacterToPanel();
+                            }
+                        }
+                    }
+                } else if (loadAttempts > 40) { // Give up after 10 seconds
+                    clearInterval(autoLoadInterval);
+                }
+            }, 250);
+        }
+
         const context = SillyTavern.getContext();
-        context.eventSource.on(context.event_types.CHAT_CHANGED, () => {
+        
+        if (stContextEmotion && typeof stContextEmotion.bindSTEvents === 'function') {
+            stContextEmotion.bindSTEvents(context);
+        }
+
+        _onChatChanged = async () => {
+            if (!settings.enabled) return;
+
+            closeCharacterPicker();
+
+            // If EchoText already has an independent character or group selected, don't follow ST's change.
+            // This allows the user to have a different character/group open in each app simultaneously.
+            if (selectedCharacterKey) return;
+            if (groupManager && groupManager.getOverrideGroupId() != null) return;
+
             // Reset group active char when chat changes so we re-select the first member
             if (groupManager) groupManager.setActiveCharKey(null);
             if (groupManager) groupManager.ensureActiveChar();
@@ -3369,34 +6286,50 @@
             const key = getCharacterKey();
             if (key) syncProactiveStateWithHistory(key, getChatHistory());
             if (panelOpen) {
-                const charName = getCharacterName();
-
-                jQuery('#et-char-name').text(charName);
-                jQuery('#et-char-avatar-wrap').replaceWith(buildAvatarHtml(charName, '', 'et-char-avatar-wrap'));
-                jQuery('#et-input').attr('placeholder', `Text ${charName}...`);
-
-                const history = getChatHistory();
-                renderMessages(history);
+                applySelectedCharacterToPanel();
 
                 // Re-render group bar (shows for group chats, hidden for solo)
                 if (groupManager) {
                     groupManager.renderGroupBar(groupManager.getActiveCharKey());
-                    groupManager.bindGroupBarEvents(switchGroupChar);
+                    groupManager.bindGroupBarEvents(switchGroupChar, onCombineModeToggle, triggerManualCombineChar);
                 }
             }
-        });
+        };
+        context.eventSource.on(context.event_types.CHAT_CHANGED, _onChatChanged);
 
         // Also listen for GROUP_UPDATED to refresh the bar if membership changes
         if (context.event_types.GROUP_UPDATED) {
-            context.eventSource.on(context.event_types.GROUP_UPDATED, () => {
+            _onGroupUpdated = () => {
                 if (panelOpen && groupManager) {
                     groupManager.renderGroupBar(groupManager.getActiveCharKey());
-                    groupManager.bindGroupBarEvents(switchGroupChar);
+                    groupManager.bindGroupBarEvents(switchGroupChar, onCombineModeToggle, triggerManualCombineChar);
                 }
-            });
+            };
+            context.eventSource.on(context.event_types.GROUP_UPDATED, _onGroupUpdated);
         }
 
         log('EchoText initialized successfully');
+    }
+
+    function destroyEchoText() {
+        const context = SillyTavern.getContext();
+        if (context && context.eventSource) {
+            if (_onChatChanged) {
+                context.eventSource.removeListener(context.event_types.CHAT_CHANGED, _onChatChanged);
+                _onChatChanged = null;
+            }
+            if (_onGroupUpdated && context.event_types.GROUP_UPDATED) {
+                context.eventSource.removeListener(context.event_types.GROUP_UPDATED, _onGroupUpdated);
+                _onGroupUpdated = null;
+            }
+            if (stContextEmotion && typeof stContextEmotion.unbindSTEvents === 'function') {
+                stContextEmotion.unbindSTEvents(context);
+            }
+        }
+        if (proactiveMessaging && typeof proactiveMessaging.stopProactiveScheduler === 'function') {
+            proactiveMessaging.stopProactiveScheduler();
+        }
+        removePortal();
     }
 
     // Register extension with SillyTavern
@@ -3407,6 +6340,8 @@
                 context.extensionSettings.echotext = {};
             }
         }
+        // Clean up event listeners and portal on re-registration / hot-reload
+        destroyEchoText();
     }
 
     // ============================================================
@@ -3426,12 +6361,10 @@
         }
 
         try {
-            console.log('EchoText Debug - Starting initialization...');
             registerExtension();
             initEchoText();
-            console.log('EchoText Debug - Initialization complete.');
         } catch (error) {
-            console.error('EchoText Debug - Initialization failed:', error);
+            console.error('[EchoText] Initialization failed:', error);
         }
     }
 
