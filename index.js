@@ -5035,6 +5035,9 @@
             items.push({ id: 'edit', icon: 'fa-pen', label: 'Edit', cls: '' });
             items.push({ id: 'copy', icon: 'fa-copy', label: 'Copy', cls: '' });
             items.push({ id: 'regen', icon: 'fa-rotate-right', label: 'Regenerate', cls: '' });
+            if (memorySystem && settings.memoryEnabled) {
+                items.push({ id: 'add_memory', icon: 'fa-brain', label: 'Add Memory', cls: '' });
+            }
             items.push({ id: 'delete', icon: 'fa-trash', label: 'Delete', cls: 'et-dots-item-delete' });
         } else {
             items.push({ id: 'edit', icon: 'fa-pen', label: 'Edit', cls: '' });
@@ -5266,6 +5269,12 @@
                 const label = v.charAt(0).toUpperCase() + v.slice(1);
                 toastr.info(`Verbosity set to <b>${label}</b> for ${getCharacterName()}.`, '', { timeOut: 2500 });
             });
+            return;
+        }
+
+        if (action === 'add_memory') {
+            closeAllDotMenus();
+            showManualMemorySaveModal(msg.mes);
             return;
         }
 
@@ -5919,6 +5928,113 @@
                 settingsModal.renderMemoryListInto('#et_memory_list_panel', '#et_memory_empty_panel', '#et_memory_list_label_panel');
             }
             toastr.success('Memory removed.');
+            closeModal();
+        });
+
+        jQuery('#et-mem-save-dismiss').on('click', closeModal);
+        jQuery('#et-mem-save-modal-overlay').on('click', closeModal);
+        const onKey = (e) => { if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); closeModal(); } };
+        document.addEventListener('keydown', onKey);
+    }
+
+    /**
+     * Opens the memory save modal triggered manually from the message dot-menu.
+     * Unlike showMemorySaveModal (which operates on a highlight element), this
+     * takes the raw message text and lets the user categorise and save it freely.
+     * @param {string} messageText - raw user message text
+     */
+    function showManualMemorySaveModal(messageText) {
+        if (!messageText || !messageText.trim()) return;
+
+        jQuery('#et-mem-save-modal').remove();
+        jQuery('#et-mem-save-modal-overlay').remove();
+
+        const { DOMPurify } = SillyTavern.libs;
+        const content     = messageText.trim();
+        // Trim to 300 chars as a sensible default for the editable field
+        const snippetText = content.length > 300 ? content.substring(0, 300) : content;
+
+        const charNameFn   = window._etGetCharacterName;
+        const charName     = typeof charNameFn === 'function' ? charNameFn() : null;
+        const safeCharName = DOMPurify.sanitize(charName || 'Character', { ALLOWED_TAGS: [] });
+
+        const scopePillHtml = `
+            <div class="et-mem-scope-pill-wrap">
+                <button class="et-mem-scope-seg et-mem-scope-seg-active" data-scope="per-character" type="button">
+                    <i class="fa-solid fa-user"></i> ${safeCharName}
+                </button>
+                <button class="et-mem-scope-seg" data-scope="global" type="button">
+                    <i class="fa-solid fa-globe"></i> Global
+                </button>
+            </div>`;
+
+        const catOptions = Object.entries(_MEM_CATEGORY_LABELS).map(([k, v]) =>
+            `<option value="${k}"${k === 'custom' ? ' selected' : ''}>${v}</option>`
+        ).join('');
+
+        const html = `
+        <div id="et-mem-save-modal-overlay" class="et-mem-save-modal-overlay"></div>
+        <div id="et-mem-save-modal" class="et-mem-save-modal">
+            <div class="et-mem-save-header">
+                <i class="fa-solid fa-brain"></i>
+                <span>Add Memory</span>
+            </div>
+            <textarea id="et-mem-save-content-edit" class="et-mem-save-snippet et-mem-save-snippet-edit" rows="4" spellcheck="false" placeholder="Edit to keep just what matters..."></textarea>
+            ${scopePillHtml}
+            <div class="et-mem-save-fields">
+                <div class="et-select-wrapper">
+                    <select class="et-select et-mem-save-category">${catOptions}</select>
+                    <i class="fa-solid fa-chevron-down et-select-arrow"></i>
+                </div>
+                <input type="text" class="et-input-text et-mem-save-label" value="" placeholder="Give it a name (optional)">
+            </div>
+            <label class="et-mem-form-pin-row" style="margin:10px 0 4px;">
+                <input type="checkbox" class="checkbox et-mem-save-pin">
+                <span><i class="fa-solid fa-thumbtack"></i> Pin — always inject this memory</span>
+            </label>
+            <div class="et-mem-save-actions">
+                <button class="et-mem-save-btn et-mem-save-btn-save" id="et-mem-save-confirm" type="button">
+                    <i class="fa-solid fa-check"></i> Save Memory
+                </button>
+                <button class="et-mem-save-btn et-mem-save-btn-dismiss" id="et-mem-save-dismiss" type="button">
+                    Dismiss
+                </button>
+            </div>
+        </div>`;
+
+        const panel = jQuery('#et-panel');
+        panel.append(html);
+        // Set textarea value via JS (not innerHTML) to preserve special characters safely
+        jQuery('#et-mem-save-content-edit').val(snippetText);
+        requestAnimationFrame(() => jQuery('#et-mem-save-modal').addClass('et-mem-save-modal-open'));
+
+        jQuery('#et-mem-save-modal').on('click', '.et-mem-scope-seg', function () {
+            jQuery('#et-mem-save-modal .et-mem-scope-seg').removeClass('et-mem-scope-seg-active');
+            jQuery(this).addClass('et-mem-scope-seg-active');
+        });
+
+        function closeModal() {
+            const modal   = jQuery('#et-mem-save-modal');
+            const overlay = jQuery('#et-mem-save-modal-overlay');
+            modal.removeClass('et-mem-save-modal-open');
+            setTimeout(() => { modal.remove(); overlay.remove(); }, 220);
+        }
+
+        jQuery('#et-mem-save-confirm').on('click', function () {
+            const saveContent = jQuery('#et-mem-save-content-edit').val().trim();
+            if (!saveContent) { toastr.warning('Memory content cannot be empty.'); return; }
+            const cat         = jQuery('#et-mem-save-modal .et-mem-save-category').val();
+            const lbl         = jQuery('#et-mem-save-modal .et-mem-save-label').val().trim();
+            const pin         = jQuery('#et-mem-save-modal .et-mem-save-pin').is(':checked');
+            const chosenScope = jQuery('#et-mem-save-modal .et-mem-scope-seg-active').data('scope') || 'per-character';
+            if (memorySystem) {
+                memorySystem.addMemory({ category: cat, label: lbl, content: saveContent, pinned: pin, scope: chosenScope });
+            }
+            if (settingsModal && typeof settingsModal.renderMemoryListInto === 'function') {
+                settingsModal.renderMemoryListInto('#et_memory_list',       '#et_memory_empty',       '#et_memory_list_label');
+                settingsModal.renderMemoryListInto('#et_memory_list_panel', '#et_memory_empty_panel', '#et_memory_list_label_panel');
+            }
+            toastr.success('Memory saved!');
             closeModal();
         });
 

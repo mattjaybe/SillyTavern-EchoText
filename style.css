@@ -10083,6 +10083,35 @@ html.et-bg-light {
     overflow-y: auto;
 }
 
+/* Editable variant used in the manual "Add Memory" modal */
+textarea.et-mem-save-snippet-edit {
+    font-style: normal;
+    color: var(--et-text);
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.14);
+    max-height: none;
+    min-height: 90px;
+    resize: vertical;
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--et-font-family);
+    outline: none;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+textarea.et-mem-save-snippet-edit:hover {
+    border-color: rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.09);
+}
+textarea.et-mem-save-snippet-edit:focus {
+    border-color: var(--et-theme-color);
+    background: rgba(255,255,255,0.1);
+    box-shadow: inset 0 0 0 1px var(--et-theme-color);
+}
+textarea.et-mem-save-snippet-edit::placeholder {
+    color: var(--et-text-muted);
+    font-style: italic;
+}
+
 .et-mem-save-fields {
     display: flex;
     gap: 7px;
