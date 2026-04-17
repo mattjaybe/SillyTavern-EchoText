@@ -394,7 +394,7 @@ Memories are organized into categories:
 | 😂 **Inside Jokes** | Running gags, funny moments, private references |
 | 👤 **People** | Friends, family, or other characters that come up |
 | 🎯 **Hobbies** | Interests and activities mentioned in conversation |
-| ⭐ **Favorites** | Preferences and things they love |
+| ⭐ **Favorites** | Preferences and things you love |
 | 💛 **Shared Moments** | Emotional exchanges and milestones |
 | ✏️ **Custom** | Anything else worth saving |
 
