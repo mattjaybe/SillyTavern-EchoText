@@ -6,7 +6,7 @@
 
 A [SillyTavern](https://github.com/SillyTavern/SillyTavern) extension that adds a floating, iMessage-style chat panel — a private side channel for casual, intimate conversations with any character, while your roleplay continues in the background.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](manifest.json)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](manifest.json)
 [![SillyTavern](https://img.shields.io/badge/SillyTavern-Extension-orange.svg)](https://github.com/SillyTavern/SillyTavern)
 
 </div>
