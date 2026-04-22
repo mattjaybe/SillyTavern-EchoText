@@ -63,12 +63,21 @@
     loadEchoTextModule('lib/gallery.js', 'EchoTextGallery');
     loadEchoTextModule('lib/character-picker.js', 'EchoTextCharacterPicker');
     loadEchoTextModule('lib/st-context-emotion.js', 'EchoTextSTContextEmotion');
+    loadEchoTextModule('lib/theme-editor.js', 'EchoTextThemeEditor');
+    loadEchoTextModule('lib/context-override.js', 'EchoTextContextOverride');
 
     // ============================================================
     // THEME PRESETS
     // ============================================================
 
     const THEME_PRESETS = window.EchoTextConfig.THEME_PRESETS;
+
+    // Returns the merged set of built-in presets + user-created custom themes.
+    // All theme-aware code should call this rather than referencing THEME_PRESETS
+    // directly, so custom themes are always included.
+    function getAllThemePresets() {
+        return Object.assign({}, THEME_PRESETS, settings.customThemes || {});
+    }
 
     // ============================================================
     // DEFAULT SETTINGS
@@ -95,6 +104,8 @@
     let gallery = null;
     let characterPicker = null;
     let stContextEmotion = null;
+    let themeEditor = null;
+    let contextOverride = null;
     let FA_REACTIONS = [];
     let selectedCharacterKey = null;
 
@@ -459,6 +470,7 @@
         jQuery('#et_ctx_personality').prop('checked', settings.ctxPersonality !== false);
         jQuery('#et_ctx_scenario').prop('checked', settings.ctxScenario !== false);
         jQuery('#et_ctx_persona').prop('checked', settings.ctxPersona === true);
+        jQuery('#et_ctx_authors_note').prop('checked', settings.ctxAuthorsNote === true);
         jQuery('#et_ctx_world_info').prop('checked', settings.ctxWorldInfo === true);
         jQuery('#et_ctx_st_messages').prop('checked', settings.ctxSTMessages === true);
         jQuery('#et_ctx_st_context').prop('checked', settings.ctxSTContext === true);
@@ -521,6 +533,7 @@
         jQuery('#et_ctx_personality_panel').prop('checked', settings.ctxPersonality !== false);
         jQuery('#et_ctx_scenario_panel').prop('checked', settings.ctxScenario !== false);
         jQuery('#et_ctx_persona_panel').prop('checked', settings.ctxPersona === true);
+        jQuery('#et_ctx_authors_note_panel').prop('checked', settings.ctxAuthorsNote === true);
         jQuery('#et_ctx_world_info_panel').prop('checked', settings.ctxWorldInfo === true);
         jQuery('#et_ctx_st_messages_panel').prop('checked', settings.ctxSTMessages === true);
         jQuery('#et_ctx_st_context_panel').prop('checked', settings.ctxSTContext === true);
@@ -635,6 +648,22 @@
         jQuery('#et_image_generation_plugin_notice').toggle(imgEnabled);
         jQuery('#et_image_generation_plugin_notice_panel').toggle(imgEnabled);
         jQuery('#et-overflow-gallery').toggle(imgEnabled && hasChar && !inGroup);
+    }
+
+    function updateContextOverrideBadge() {
+        if (!contextOverride) return;
+        const ov = contextOverride.getOverridesForCurrentChar();
+        let count = 0;
+        if (ov.description   && ov.description.trim())   count++;
+        if (ov.personality   && ov.personality.trim())   count++;
+        if (ov.scenario      && ov.scenario.trim())      count++;
+        if (ov.textingStyleValue && ov.textingStyleValue.trim()) count++;
+        const badge = jQuery('#et-overflow-ctx-badge');
+        if (count > 0) {
+            badge.text(count).show();
+        } else {
+            badge.hide();
+        }
     }
 
     // Initialize custom dropdowns for panel
@@ -919,6 +948,13 @@
             jQuery('#et_ctx_persona').prop('checked', settings.ctxPersona);
         });
 
+        jQuery('#et_ctx_authors_note_panel').off('change.panel').on('change.panel', function () {
+            settings.ctxAuthorsNote = jQuery(this).is(':checked');
+            saveSettings();
+            // Sync with modal
+            jQuery('#et_ctx_authors_note').prop('checked', settings.ctxAuthorsNote);
+        });
+
         jQuery('#et_ctx_world_info_panel').off('change.panel').on('change.panel', function () {
             settings.ctxWorldInfo = jQuery(this).is(':checked');
             saveSettings();
@@ -1102,9 +1138,26 @@
         if (window.EchoTextSettingsModal && window.EchoTextSettingsModal.patchIOSSliders) {
             window.EchoTextSettingsModal.patchIOSSliders(document);
         }
+
+        // Custom theme editor button (panel drawer)
+        jQuery(document).off('click.et-panel-te').on('click.et-panel-te', '#et-te-open-btn-panel', function () {
+            if (themeEditor) themeEditor.openThemeEditor();
+            moveModalToPortal('#et-theme-editor-overlay');
+        });
     }
 
     // ── Background luminance detection for adaptive glassmorphism ──────────────
+    // Extracts {r, g, b} integer components from a CSS rgb/rgba/hex color string.
+    // Returns null if the string cannot be parsed (e.g. named colors, gradients).
+    function extractRgbComponents(colorStr) {
+        if (!colorStr) return null;
+        const m = String(colorStr).match(/rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/);
+        if (m) return { r: Math.round(+m[1]), g: Math.round(+m[2]), b: Math.round(+m[3]) };
+        const hm = String(colorStr).match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+        if (hm) return { r: parseInt(hm[1], 16), g: parseInt(hm[2], 16), b: parseInt(hm[3], 16) };
+        return null;
+    }
+
     // Converts a parsed CSS rgb/rgba color string to WCAG relative luminance (0–1).
     // Returns null if the string cannot be parsed (e.g. named colors, gradients).
     function cssColorToRelativeLuminance(cssColor) {
@@ -1151,10 +1204,51 @@
     }
 
     // Adds or removes html.et-bg-light based on detected background luminance.
+    // Reads SillyTavern's live CSS custom properties and maps them to EchoText
+    // CSS variables. Only called when the 'sillytavern' theme preset is active.
+    // Handles the values that cannot be expressed as pure CSS var() references
+    // (e.g. RGB triplets, derived alpha variants).
+    function applySillyTavernThemeColors() {
+        const cs  = getComputedStyle(document.documentElement);
+        const root = document.documentElement;
+
+        // ── Panel glass background ──────────────────────────────────────────
+        // --SmartThemeBlurTintColor is ST's "UI Background" tint.  We extract
+        // its R/G/B so that --et-panel-bg-rgb can feed rgba(r,g,b,opacity).
+        const blurTint = cs.getPropertyValue('--SmartThemeBlurTintColor').trim();
+        const blurRgb  = extractRgbComponents(blurTint);
+        if (blurRgb) {
+            root.style.setProperty('--et-panel-bg-rgb', `${blurRgb.r}, ${blurRgb.g}, ${blurRgb.b}`);
+        } else {
+            root.style.removeProperty('--et-panel-bg-rgb');
+        }
+
+        // ── Accent / theme colour ───────────────────────────────────────────
+        // --SmartThemeQuoteColor is ST's "Quote Text" highlight — typically the
+        // most vivid accent in the palette, a good stand-in for ET's accent.
+        const quoteColor = cs.getPropertyValue('--SmartThemeQuoteColor').trim();
+        if (quoteColor) {
+            root.style.setProperty('--et-theme-color', quoteColor);
+        } else {
+            root.style.removeProperty('--et-theme-color');
+        }
+
+        // ── Character bubble background ─────────────────────────────────────
+        // --SmartThemeBotMesBlurTintColor is ST's "AI Message" tint.
+        // We use a moderate alpha so it stays translucent on the glass panel.
+        const botTint = cs.getPropertyValue('--SmartThemeBotMesBlurTintColor').trim();
+        const botRgb  = extractRgbComponents(botTint);
+        if (botRgb) {
+            root.style.setProperty('--et-char-bubble-bg', `rgba(${botRgb.r}, ${botRgb.g}, ${botRgb.b}, 0.55)`);
+        } else {
+            root.style.removeProperty('--et-char-bubble-bg');
+        }
+    }
+
     // Only runs auto-detection for the 'sillytavern' theme preset (all other
     // presets are explicitly dark and never need the light variant).
     function applyAdaptiveGlass() {
-        const theme = THEME_PRESETS[settings.theme] || THEME_PRESETS.sillytavern;
+        const theme = getAllThemePresets()[settings.theme] || THEME_PRESETS.sillytavern;
         if (theme.primary) {
             // Explicit dark theme selected — never apply light glass
             document.documentElement.classList.remove('et-bg-light');
@@ -1168,12 +1262,14 @@
     }
 
     function applyAppearanceSettings() {
-        const theme = THEME_PRESETS[settings.theme] || THEME_PRESETS.sillytavern;
+        const theme = getAllThemePresets()[settings.theme] || THEME_PRESETS.sillytavern;
 
         if (theme.primary) {
             document.documentElement.style.setProperty('--et-bg', theme.primary);
             document.documentElement.style.setProperty('--et-header-bg', 'rgba(0,0,0,0.3)');
             document.documentElement.style.setProperty('--et-char-bubble-bg', 'rgba(255,255,255,0.08)');
+            // Revert panel-bg-rgb to :root default so it matches the explicit theme's dark palette.
+            document.documentElement.style.removeProperty('--et-panel-bg-rgb');
         } else {
             document.documentElement.style.removeProperty('--et-bg');
             document.documentElement.style.removeProperty('--et-header-bg');
@@ -1218,6 +1314,12 @@
             renderMessages(history);
         }
 
+        // For the SillyTavern preset, pull live colors from ST's CSS variables.
+        // Must run before applyAdaptiveGlass() so the correct tint is detected.
+        if (!theme.primary) {
+            applySillyTavernThemeColors();
+        }
+
         applyAdaptiveGlass();
     }
 
@@ -1249,7 +1351,7 @@
     }
 
     function updateThemePreview() {
-        const theme = THEME_PRESETS[settings.theme] || THEME_PRESETS.sillytavern;
+        const theme = getAllThemePresets()[settings.theme] || THEME_PRESETS.sillytavern;
         const preview = jQuery('#et_theme_preview');
         if (!preview.length) return;
         const swatches = theme.swatches || [];
@@ -1321,6 +1423,8 @@
             updatePanelStatusRow();
             updateImageGenerationVisibility();
             jQuery('#et-overflow-saveload, #et-overflow-char-divider, #et-overflow-clear').show();
+            // Context override is Untethered-only — hide in combine/group modes
+            jQuery('#et-overflow-context').hide();
             const history = getChatHistory();
             renderMessages(history);
             return;
@@ -1349,6 +1453,10 @@
 
         // Show/hide character-dependent overflow menu items
         jQuery('#et-overflow-saveload, #et-overflow-char-divider, #et-overflow-clear').toggle(hasChar);
+        // Context override is only available in Untethered mode
+        const showCtx = hasChar && !isTetheredMode();
+        jQuery('#et-overflow-context').toggle(showCtx);
+        if (showCtx) updateContextOverrideBadge();
 
         const history = getChatHistory();
         renderMessages(history);
@@ -1873,17 +1981,24 @@
         const charPersonality  = char.personality  || char.data?.personality  || '';
         const charScenario     = char.scenario      || char.data?.scenario      || '';
 
+        // Apply per-character context overrides (from the Context modal).
+        // Overrides are Untethered-only — in Tethered mode the ST card fields are used as-is.
+        const _ctxOv = (!tethered && contextOverride) ? contextOverride.getOverridesForCurrentChar() : {};
+        const effectiveDescription = (_ctxOv.description && _ctxOv.description.trim()) ? _ctxOv.description.trim() : charDescription;
+        const effectivePersonality  = (_ctxOv.personality  && _ctxOv.personality.trim())  ? _ctxOv.personality.trim()  : charPersonality;
+        const effectiveScenario     = (_ctxOv.scenario      && _ctxOv.scenario.trim())      ? _ctxOv.scenario.trim()      : charScenario;
+
         // Character card fields — wrapped in <character_reference> XML tags so models
         // treat them as scoped reference data rather than content to reproduce.
         const charRefParts = [];
-        if ((tethered ? settings.ctxDescription !== false : true) && charDescription) {
-            charRefParts.push(`${name}'s description: ${expandTimeDateMacros(replaceMacros(charDescription))}`);
+        if ((tethered ? settings.ctxDescription !== false : true) && effectiveDescription) {
+            charRefParts.push(`${name}'s description: ${expandTimeDateMacros(replaceMacros(effectiveDescription))}`);
         }
-        if ((tethered ? settings.ctxPersonality !== false : true) && charPersonality) {
-            charRefParts.push(`${name}'s personality: ${expandTimeDateMacros(replaceMacros(charPersonality))}`);
+        if ((tethered ? settings.ctxPersonality !== false : true) && effectivePersonality) {
+            charRefParts.push(`${name}'s personality: ${expandTimeDateMacros(replaceMacros(effectivePersonality))}`);
         }
-        if ((tethered ? settings.ctxScenario !== false : true) && charScenario) {
-            charRefParts.push(`Scenario: ${expandTimeDateMacros(replaceMacros(charScenario))}`);
+        if ((tethered ? settings.ctxScenario !== false : true) && effectiveScenario) {
+            charRefParts.push(`Scenario: ${expandTimeDateMacros(replaceMacros(effectiveScenario))}`);
         }
         if (tethered && settings.ctxWorldInfo === true) {
             try {
@@ -1895,6 +2010,25 @@
         }
         if (charRefParts.length > 0) {
             prompt += `\n\n<character_reference>\n${charRefParts.join('\n\n')}\n</character_reference>`;
+        }
+
+        // Author's Note — special per-character instructions from SillyTavern.
+        // Reads from multiple sources in priority order:
+        // Author's Note — reads from extensionSettings.note.chara, which is where
+        // SillyTavern's "Character Author's Note (Private)" panel stores per-character
+        // notes. The array is keyed by character filename without extension (e.g. "Joi",
+        // not "Joi.png"). We include the note text whenever the EchoText toggle is on,
+        // regardless of ST's own useChara flag (EchoText's toggle is the user's opt-in).
+        if (settings.ctxAuthorsNote === true) {
+            try {
+                const context = SillyTavern.getContext();
+                const charaFilename = (char.avatar || char.name || '').replace(/\.[^/.]+$/, '');
+                const charaNote = context.extensionSettings?.note?.chara?.find(e => e.name === charaFilename);
+                const authorNote = (charaNote?.prompt || '').trim();
+                if (authorNote) {
+                    prompt += `\n\n<authors_note>\n${expandTimeDateMacros(replaceMacros(authorNote))}\n</authors_note>`;
+                }
+            } catch (e) { /* ignore */ }
         }
 
 
@@ -1929,6 +2063,14 @@
         // silently nullifying the user's Chat Influence settings.
         if (!tethered) {
             prompt += buildUntetheredChatContext();
+        }
+
+        // ── 5b. TEXTING STYLE OVERRIDE ───────────────────────────────────────────
+        // Injected after the untethered overlay so it lands at the very end of the
+        // behaviour section — maximum recency before the verbosity instruction.
+        // Untethered-only: tethered mode uses the ST card as-is.
+        if (!tethered && contextOverride) {
+            prompt += contextOverride.buildContextOverridePrompt();
         }
 
         // ── 6. VERBOSITY ─────────────────────────────────────────────────────────
@@ -2475,7 +2617,7 @@
         // from awkwardly commenting on "send me a photo" when an image silently appears.
         let pendingImageDetection = null;
         let apiHistory = history;
-        if (imageGeneration && latestUserMessage?.is_user) {
+        if (imageGeneration && settings.imageGenerationEnabled === true && latestUserMessage?.is_user) {
             pendingImageDetection = imageGeneration.detectImageRequest(latestUserMessage.mes, history);
             if (pendingImageDetection.triggered) {
                 // Strip the image-triggering message — the AI never sees it
@@ -2517,7 +2659,7 @@
             }
 
             let imageReply = null;
-            if (imageGeneration && latestUserMessage?.is_user) {
+            if (imageGeneration && settings.imageGenerationEnabled === true && latestUserMessage?.is_user) {
                 // Reuse the pre-detection result — no need to call detectImageRequest again
                 if (pendingImageDetection?.triggered) {
                     // Replace typing indicator with the dedicated image-generating indicator
@@ -3721,6 +3863,11 @@
                             <i class="fa-solid fa-gear"></i>
                             <span>Settings</span>
                         </div>
+                        <div class="et-overflow-menu-item" id="et-overflow-context" style="display:none">
+                            <i class="fa-solid fa-book-open-reader"></i>
+                            <span>Context</span>
+                            <span class="et-overflow-ctx-badge" id="et-overflow-ctx-badge" style="display:none"></span>
+                        </div>
                         <div class="et-overflow-menu-item" id="et-overflow-gallery" style="display:none">
                             <i class="fa-regular fa-images"></i>
                             <span>Gallery</span>
@@ -3959,6 +4106,13 @@
             moveModalToPortal('.et-gallery-overlay');
         });
 
+        jQuery('#et-overflow-context').on('click', (e) => {
+            e.stopPropagation();
+            closeOverflowMenu();
+            if (contextOverride) contextOverride.openModal();
+            moveModalToPortal('#et-ctx-overlay');
+        });
+
         jQuery(document).on('click.et-overflow', function (e) {
             if (!jQuery(e.target).closest('#et-overflow-btn, #et-overflow-menu').length) {
                 closeOverflowMenu();
@@ -4046,6 +4200,13 @@
             btn.attr('title', tethered ? 'Tethered: Syncs mood and context with the main chat.' : 'Untethered: Standalone session with no main chat sync.');
             btn.addClass('et-mode-toggle-anim');
             setTimeout(() => btn.removeClass('et-mode-toggle-anim'), 450);
+
+            // Context override is Untethered-only — sync visibility on mode switch
+            const hasChar = !!getCurrentCharacter();
+            const showCtx = hasChar && !tethered;
+            jQuery('#et-overflow-context').toggle(showCtx);
+            if (showCtx) updateContextOverrideBadge();
+
             refreshProactiveInsights();
         });
 
@@ -4884,7 +5045,7 @@
                             <div class="et-message-footer">
                                 <div class="et-char-info-pill${showAvatar ? '' : ' et-pill-no-avatar'}">
                                     ${avatarHtml}
-                                    <span class="et-footer-name">${safeCharName}</span>
+                                    <span class="et-footer-name" title="${safeCharName}">${safeCharName}</span>
                                 </div>
                                 <span class="et-message-time" title="${fullDateToolip}">${time}</span>
                                 ${verbosityBadge}
@@ -5530,7 +5691,7 @@
     }
 
     function buildThemeDropdownHtml(currentValue) {
-        const options = Object.entries(THEME_PRESETS).map(([key, theme]) => {
+        const options = Object.entries(getAllThemePresets()).map(([key, theme]) => {
             const swatchHtml = (theme.swatches || []).map(c =>
                 `<span class="et-dd-swatch" style="background:${c};"></span>`
             ).join('');
@@ -6127,7 +6288,7 @@
         settingsModal = window.EchoTextSettingsModal.createSettingsModal({
             getSettings: () => settings,
             saveSettings,
-            getThemePresets: () => THEME_PRESETS,
+            getThemePresets: () => getAllThemePresets(),
             applySettingsToUI,
             applyAppearanceSettings,
             populateConnectionProfiles,
@@ -6151,7 +6312,40 @@
             buildThemeDropdownHtml,
             buildFontDropdownHtml,
             loadGoogleFont,
-            updatePanelStatusRow
+            updatePanelStatusRow,
+            openThemeEditor: () => { if (themeEditor) themeEditor.openThemeEditor(); moveModalToPortal('#et-theme-editor-overlay'); }
+        });
+
+        themeEditor = window.EchoTextThemeEditor.createThemeEditor({
+            getSettings: () => settings,
+            saveSettings,
+            applyAppearanceSettings,
+            // Rebuilds the theme dropdown in all open UI surfaces after custom theme changes.
+            refreshThemeDropdown: () => {
+                const current = settings.theme;
+                jQuery('#et_theme_panel_container').html(buildThemeDropdownHtml(current));
+                // Use a scoped selector so we target only the settings modal's dropdown,
+                // not the panel-drawer's #et_theme_custom which was just rebuilt above.
+                const ddModal = jQuery('.et-settings-modal #et_theme_custom');
+                if (ddModal.length) {
+                    ddModal.closest('.et-field').html(
+                        '<label class="et-field-label"><i class="fa-solid fa-swatchbook"></i> Theme</label>' +
+                        buildThemeDropdownHtml(current) +
+                        '<button class="et-te-open-btn" id="et-te-open-btn-modal" title="Create and manage custom colour themes">' +
+                        '<i class="fa-solid fa-wand-magic-sparkles"></i> Edit Custom Themes</button>'
+                    );
+                    // Re-bind the button inside the re-rendered field
+                    jQuery('.et-settings-modal #et-te-open-btn-modal').on('click', function () {
+                        if (themeEditor) themeEditor.openThemeEditor();
+                        moveModalToPortal('#et-theme-editor-overlay');
+                    });
+                }
+                updateThemePreview();
+            },
+            onThemeListChanged: () => {
+                // Re-apply in case active theme was mutated
+                applyAppearanceSettings();
+            }
         });
 
         memorySystem = window.EchoTextMemorySystem.createMemorySystem({
@@ -6222,6 +6416,14 @@
             getSwitchGroupCharFn: () => (typeof switchGroupChar === 'function' ? switchGroupChar : null),
             getOnCombineModeToggleFn: () => (typeof onCombineModeToggle === 'function' ? onCombineModeToggle : null),
             getTriggerManualCombineCharFn: () => (typeof triggerManualCombineChar === 'function' ? triggerManualCombineChar : null)
+        });
+
+        contextOverride = window.EchoTextContextOverride.createContextOverride({
+            getSettings,
+            saveSettings,
+            getCharacterKey,
+            getCharacterName,
+            onSave: updateContextOverrideBadge,
         });
 
         gallery = window.EchoTextGallery.createGallery({
@@ -6425,6 +6627,23 @@
         }
 
         log('EchoText initialized successfully');
+
+        // ── Live ST theme sync ──────────────────────────────────────────────
+        // SillyTavern changes theme by calling setProperty() on
+        // document.documentElement.style — there is no dedicated event.
+        // We observe the 'style' attribute and re-sync whenever the sillytavern
+        // preset is active, debounced so burst updates (ST sets ~10 props at once)
+        // only trigger a single re-apply.
+        let _stThemeSyncTimeout = null;
+        new MutationObserver(() => {
+            const theme = getAllThemePresets()[settings.theme] || THEME_PRESETS.sillytavern;
+            if (theme.primary) return; // explicit ET theme — nothing to sync
+            clearTimeout(_stThemeSyncTimeout);
+            _stThemeSyncTimeout = setTimeout(() => {
+                applySillyTavernThemeColors();
+                applyAdaptiveGlass();
+            }, 200);
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
     }
 
     function destroyEchoText() {

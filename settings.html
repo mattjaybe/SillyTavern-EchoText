@@ -45,6 +45,14 @@
                         </div>
 
                         <div class="et-field">
+                            <label class="et-toggle-row" for="et_swiped_messages_panel">
+                                <input type="checkbox" id="et_swiped_messages_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-clone"></i> Swiped Messages</span>
+                            </label>
+                            <div class="et-hint">Save previous AI responses when regenerating. Use arrows (or swipe on mobile) to navigate between versions.</div>
+                        </div>
+
+                        <div class="et-field">
                             <label class="et-toggle-row" for="et_auto_open_panel">
                                 <input type="checkbox" id="et_auto_open_panel" class="checkbox">
                                 <span class="et-label-text"><i class="fa-solid fa-door-open"></i> Auto-Open on
@@ -222,6 +230,14 @@
                         </div>
 
                         <div class="et-field">
+                            <label class="et-toggle-row" for="et_ctx_authors_note_panel">
+                                <input type="checkbox" id="et_ctx_authors_note_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-pen-nib"></i> Author's Note</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Include the character's Author's Note — special per-character instructions set in SillyTavern.</div>
+                        </div>
+
+                        <div class="et-field">
                             <label class="et-toggle-row" for="et_ctx_world_info_panel">
                                 <input type="checkbox" id="et_ctx_world_info_panel" class="checkbox">
                                 <span class="et-label-text"><i class="fa-solid fa-globe"></i> World Info /
@@ -247,6 +263,9 @@
                             <div id="et_theme_panel_container">
                                 <!-- Theme dropdown will be populated by JavaScript -->
                             </div>
+                            <button class="et-te-open-btn" id="et-te-open-btn-panel" title="Create and manage custom colour themes">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Edit Custom Themes
+                            </button>
                         </div>
 
                         <div class="et-field">

@@ -283,6 +283,32 @@
 }
 
 /* ============================================================
+   CONTEXT OVERRIDE MODAL — full-screen
+   Same portal escape as gallery/save-load: fixed → absolute so
+   the overlay fills the portal rather than the layout viewport.
+   ============================================================ */
+
+.et-ctx-overlay {
+    /* Absolute (not fixed) — same iOS layout-viewport issue as gallery/lightbox */
+    position: absolute !important;
+    inset: 0 !important;
+    /* Portal has pointer-events:none; child must opt back in explicitly */
+    pointer-events: auto !important;
+}
+
+.et-ctx-modal {
+    width:         100% !important;
+    max-width:     100% !important;
+    max-height:    100% !important;
+    border-radius: 0 !important;
+}
+
+.et-ctx-body {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+/* ============================================================
    SAVE / LOAD MODAL — full-screen
    ============================================================ */
 
@@ -303,6 +329,10 @@
     height:        100% !important;
     max-height:    100% !important;
     border-radius: 0 !important;
+}
+
+.et-sl-save-bar {
+    flex-wrap: wrap !important;
 }
 
 .et-sl-body {
@@ -563,6 +593,201 @@
     scrollbar-width: none;
 }
 
+/* ============================================================
+   THEME EDITOR — mobile overrides
+   On narrow screens the two-column layout collapses to a single
+   scrollable column so the list and editor stack vertically.
+   ============================================================ */
+
+.et-te-overlay {
+    padding: 0 !important;
+    align-items: flex-end !important;
+}
+
+.et-te-modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    /* Slide up from the bottom edge like a bottom-sheet */
+    max-height: 92vh !important;
+    border-radius: 20px 20px 0 0 !important;
+    transform: translateY(30px) !important;
+    transition: transform 0.28s cubic-bezier(0.34, 1.2, 0.64, 1) !important;
+}
+.et-te-overlay-open .et-te-modal {
+    transform: translateY(0) !important;
+}
+
+/* Stack columns vertically */
+.et-te-modal-body {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* List section fills width, fixed height so it doesn't dominate */
+.et-te-list-section {
+    width: 100% !important;
+    max-height: 40vh !important;
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    flex-shrink: 0 !important;
+}
+
+/* Editor / preview section fills remaining space */
+.et-te-editor-section {
+    width: 100% !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+.et-te-editor-section-open {
+    padding: 14px !important;
+}
+
+/* Full-width action buttons — easier tap targets */
+.et-te-editor-actions,
+.et-te-pp-actions {
+    flex-direction: column !important;
+}
+.et-te-btn,
+.et-te-btn-add {
+    width: 100% !important;
+    justify-content: center !important;
+    min-height: 44px !important;
+    font-size: 0.95rem !important;
+}
+.et-te-btn-randomize {
+    width: 100% !important;
+    justify-content: center !important;
+    min-height: 40px !important;
+}
+
+/* Color inputs: let text field expand fully on narrow screens */
+.et-te-color-inputs {
+    flex-wrap: wrap !important;
+}
+.et-te-color-text {
+    min-width: 0 !important;
+    flex-basis: 100% !important;
+    margin-top: 4px !important;
+}
+
+
+/* ============================================================
+   THEME EDITOR — mobile layout
+   Stacks the list and editor vertically; uses full-screen overlay
+   so there is no squished two-column layout on small viewports.
+   ============================================================ */
+
+.et-te-overlay {
+    padding: 0 !important;
+    align-items: flex-end !important;
+}
+
+.et-te-modal {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    /* Leaves a small gap at the top so the user can see/tap to dismiss */
+    max-height: 92vh !important;
+    border-radius: 18px 18px 0 0 !important;
+    transform: translateY(40px) !important;
+    transition: transform 0.28s cubic-bezier(0.34, 1.2, 0.64, 1) !important;
+}
+.et-te-overlay-open .et-te-modal {
+    transform: translateY(0) !important;
+}
+
+/* Stack body columns vertically */
+.et-te-modal-body {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+/* Full-width sections */
+.et-te-list-section {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    overflow-y: visible !important;
+    padding: 14px 16px !important;
+}
+
+.et-te-editor-section {
+    overflow-y: visible !important;
+}
+.et-te-editor-section-open {
+    padding: 14px 16px !important;
+}
+
+/* Slightly larger touch targets for icon buttons */
+.et-te-icon-btn {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 0.9rem !important;
+}
+
+/* Ensure color picker and text inputs are adequately tall */
+.et-te-color-picker {
+    width: 44px !important;
+    height: 38px !important;
+}
+.et-te-color-text {
+    padding: 9px 10px !important;
+    font-size: 0.88rem !important;
+}
+.et-te-name-input {
+    padding: 11px 12px !important;
+    font-size: 1rem !important;
+}
+
+/* Action buttons — full-width on very narrow screens */
+.et-te-editor-actions {
+    flex-direction: row !important;
+}
+.et-te-btn {
+    flex: 1 1 auto !important;
+    justify-content: center !important;
+    padding: 12px 14px !important;
+    font-size: 0.92rem !important;
+    min-height: 44px !important;
+}
+
+/* ============================================================
+   THEME EDITOR MODAL — full-screen
+   Same portal escape as gallery/save-load: fixed → absolute so
+   the overlay fills the portal rather than the layout viewport.
+   ============================================================ */
+
+.et-te-overlay {
+    /* Absolute (not fixed) — same iOS layout-viewport issue as gallery/lightbox */
+    position: absolute !important;
+    inset: 0 !important;
+    /* Portal has pointer-events:none; child must opt back in explicitly */
+    pointer-events: auto !important;
+}
+
+.et-te-modal {
+    width:      100% !important;
+    max-width:  100% !important;
+    height:     100% !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
+}
+
+/* "Edit Custom Themes" open button — full width */
+.et-te-open-btn {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 12px 14px !important;
+    font-size: 0.9rem !important;
+    margin-top: 10px !important;
+}
+
+
 .et-group-bar::-webkit-scrollbar {
     display: none;
 }
@@ -649,4 +874,27 @@
 
 .et-slider {
     touch-action: none !important;
+}
+
+/* ─────────────────────────────────────────────────────────
+   SWIPED MESSAGES — Mobile overrides
+   ───────────────────────────────────────────────────────── */
+
+/* Always show swipe nav on mobile (no hover) */
+.et-swipe-nav {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* Larger touch targets for swipe buttons */
+.et-swipe-btn {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 0.85rem !important;
+    opacity: 0.8 !important;
+}
+
+/* Slightly larger counter text */
+.et-swipe-counter {
+    font-size: 0.65rem !important;
 }
