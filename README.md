@@ -29,6 +29,23 @@ It lives as a draggable, resizable panel floating over SillyTavern. Text a diffe
 
 ---
 
+## Updates
+
+**v.1.1.0**:
+* New feature: Context overrides in Untethered mode - overrides character's Description, Personality, Scenario, Texting Style). New 'Context' menu option for Untethered chat.
+* New feature: Added ability to import chat
+* New feature: Added two export options: JSON (importable, includes emotion states/chat influence/group characters settings) and Markdown (for sharing and archiving)
+* New feature: Custom theme editor, add your own themes to EchoText
+* Settings: Author's Note added as an option in Settings > Context, uses SillyTavern's Character Author's Note
+* Bug Fix: Proactive Messages outputting redundant messages
+* Bug Fix: React and/or Menu buttons being cut-off or hidden when using a character with a long name
+* Bug Fix: Image Generation process triggering even when the setting is disabled
+* Bug Fix: SillyTavern theme option now uses the proper colors
+* Bug Fix: When in a group chat, the group panel remained when selecting a single character in certain circumstances
+* Added missing MIT license
+
+---
+
 ## Feature Overview
 
 | | Feature | What it does |
