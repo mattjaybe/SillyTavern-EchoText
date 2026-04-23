@@ -6,7 +6,7 @@
 
 A [SillyTavern](https://github.com/SillyTavern/SillyTavern) extension that adds a floating, iMessage-style chat panel — a private side channel for casual, intimate conversations with any character, while your roleplay continues in the background.
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](manifest.json)
+[![Version](https://img.shields.io/badge/version-1.1.5-blue.svg)](manifest.json)
 [![SillyTavern](https://img.shields.io/badge/SillyTavern-Extension-orange.svg)](https://github.com/SillyTavern/SillyTavern)
 
 </div>
@@ -31,7 +31,12 @@ It lives as a draggable, resizable panel floating over SillyTavern. Text a diffe
 
 ## Updates
 
-**v.1.1.0**:
+**v1.1.5**:
+* New Feature: Persona added as a Context override option, works per-character
+* Setting: Strip Reasoning Tags, enabled by default, allows you to strip out all context enclosed within thinking/think/though/reasoning/reason tags. Can also add your own tags to the list to be stripped for any models that use unique tags or for future compatibility.
+* Bug Fix: Swiped Messaging not enabling properly on mobile
+
+**v1.1.0**:
 * New feature: Context overrides in Untethered mode - overrides character's Description, Personality, Scenario, Texting Style). New 'Context' menu option for Untethered chat.
 * New feature: Added ability to import chat
 * New feature: Added two export options: JSON (importable, includes emotion states/chat influence/group characters settings) and Markdown (for sharing and archiving)
