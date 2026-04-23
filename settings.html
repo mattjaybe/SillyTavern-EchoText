@@ -246,6 +246,29 @@
                             <div class="et-hint et-hint-indent">Include active World Info / Lorebook entries. <b>Note:</b> Only entries with an Insertion Order of 250 or higher are used.</div>
                         </div>
 
+                        <div class="et-field" style="margin-top:8px;">
+                            <label class="et-toggle-row" for="et_strip_thinking_enabled_panel">
+                                <input type="checkbox" id="et_strip_thinking_enabled_panel" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-filter"></i> Strip Reasoning Tags</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Remove AI reasoning/thinking tag blocks from messages before they enter context. Prevents internal model reasoning from inflating the context window.</div>
+                        </div>
+
+                        <div class="et-strip-tags-sub" id="et_strip_tags_sub_panel">
+                            <div class="et-field">
+                                <div class="et-strip-tags-label-row">
+                                    <label class="et-field-label" style="margin-bottom:0;"><i class="fa-solid fa-tags"></i> Tags to Strip</label>
+                                    <button id="et_strip_tag_reset_panel" class="et-strip-tag-reset-btn" title="Reset to defaults"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+                                </div>
+                                <div class="et-strip-tags-chips" id="et_strip_tag_chips_panel"></div>
+                                <div class="et-strip-tags-input-row">
+                                    <input type="text" id="et_strip_tag_input_panel" class="et-input-text" style="margin-bottom:0;flex:1;" placeholder="Add tag name…">
+                                    <button id="et_strip_tag_add_panel" class="et-mem-add-btn" title="Add tag"><i class="fa-solid fa-plus"></i> Add</button>
+                                </div>
+                                <div class="et-hint et-hint-indent" style="margin-top:6px;">Tag names without angle brackets (e.g. <code>thinking</code>). Matching is case-insensitive.</div>
+                            </div>
+                        </div>
+
 
 
                     </div>

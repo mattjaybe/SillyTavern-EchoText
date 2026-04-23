@@ -459,6 +459,7 @@
 
         jQuery('#et_show_avatar').prop('checked', settings.showAvatar !== false);
         jQuery('#et_emotion_system').prop('checked', settings.emotionSystemEnabled !== false);
+        jQuery('#et_swiped_messages').prop('checked', settings.swipedMessages === true);
         jQuery('#et_fab_size').val(settings.fabSize);
         jQuery('#et_fab_size_val').text(settings.fabSize + 'px');
         jQuery('#et_fab_opacity').val(settings.fabOpacity || 100);
@@ -508,6 +509,7 @@
         jQuery('#et_auto_scroll_panel').prop('checked', settings.autoScroll);
         jQuery('#et_show_avatar_panel').prop('checked', settings.showAvatar !== false);
         jQuery('#et_emotion_system_panel').prop('checked', settings.emotionSystemEnabled !== false);
+        jQuery('#et_swiped_messages_panel').prop('checked', settings.swipedMessages === true);
         jQuery('#et_verbosity_default_panel').val(settings.verbosityDefault || 'medium');
 
         // Generation Engine
@@ -828,6 +830,14 @@
             jQuery('#et_emotion_system').prop('checked', settings.emotionSystemEnabled);
             jQuery('#et-emotion-indicator').toggleClass('et-emotion-indicator-hidden', !settings.emotionSystemEnabled);
             updatePanelStatusRow();
+        });
+
+        // Swiped messages toggle (panel)
+        jQuery('#et_swiped_messages_panel').off('change.panel').on('change.panel', function () {
+            settings.swipedMessages = jQuery(this).is(':checked');
+            saveSettings();
+            // Sync with modal
+            jQuery('#et_swiped_messages').prop('checked', settings.swipedMessages === true);
         });
 
         // Generation Engine - Source

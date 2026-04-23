@@ -9926,6 +9926,13 @@ details.et-te-advanced[open] .et-te-advanced-toggle::before { transform: rotate(
     flex-shrink: 0;
 }
 
+.et-ctx-field-hint {
+    font-size: 0.76rem;
+    color: var(--et-text-muted, rgba(180, 180, 200, 0.55));
+    line-height: 1.4;
+    margin-top: -3px;
+}
+
 /* "Override" active badge */
 .et-ctx-override-badge {
     display: inline-flex;
@@ -11603,5 +11610,99 @@ textarea.et-mem-save-snippet-edit::placeholder {
 
 .et-sl-mobile-carousel {
     display: none;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   STRIP REASONING TAGS — chip list + input row
+   ──────────────────────────────────────────────────────────────── */
+
+/* Indented sub-section that appears under the Strip Reasoning Tags toggle */
+.et-strip-tags-sub {
+    margin-left: 26px;
+    margin-top: 4px;
+    padding: 10px 12px 10px 12px;
+    border-left: 2px solid color-mix(in srgb, var(--et-theme-color) 30%, rgba(255,255,255,0.08));
+    border-radius: 0 var(--et-radius-sm) var(--et-radius-sm) 0;
+    background: rgba(0,0,0,0.12);
+}
+
+.et-strip-tags-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.et-strip-tags-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+    min-height: 0;
+}
+
+.et-strip-tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px 3px 10px;
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--et-theme-color) 12%, rgba(255, 255, 255, 0.05));
+    border: 1px solid color-mix(in srgb, var(--et-theme-color) 30%, rgba(255, 255, 255, 0.1));
+    color: var(--et-text);
+    font-size: 0.78rem;
+    font-family: var(--et-font-family, inherit);
+    white-space: nowrap;
+}
+
+.et-strip-tag-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: transparent;
+    color: var(--et-text-muted);
+    cursor: pointer;
+    padding: 0;
+    border-radius: 50%;
+    transition: background 0.15s, color 0.15s;
+    font-size: 0.68rem;
+    flex-shrink: 0;
+}
+
+.et-strip-tag-remove:hover {
+    background: rgba(239, 68, 68, 0.18);
+    color: #f87171;
+}
+
+.et-strip-tags-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.et-strip-tag-reset-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: var(--et-radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--et-text-muted);
+    font-size: 0.74rem;
+    font-family: var(--et-font-family, inherit);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.et-strip-tag-reset-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: var(--et-text);
 }
 
