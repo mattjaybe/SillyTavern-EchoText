@@ -11706,3 +11706,305 @@ textarea.et-mem-save-snippet-edit::placeholder {
     color: var(--et-text);
 }
 
+/* ── Custom Pattern Rows ─────────────────────────────────────────── */
+.et-custom-patterns-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.et-custom-pattern-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 6px 4px 10px;
+    border-radius: var(--et-radius-sm);
+    background: color-mix(in srgb, var(--et-theme-color) 8%, rgba(255,255,255,0.03));
+    border: 1px solid rgba(255,255,255,0.07);
+    font-size: 0.78rem;
+}
+
+.et-custom-pattern-label {
+    flex: 1;
+    color: var(--et-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.et-custom-pattern-label code {
+    color: var(--et-text);
+    font-family: monospace;
+    font-size: 0.8rem;
+    background: rgba(255,255,255,0.06);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.et-custom-pattern-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: transparent;
+    color: var(--et-text-muted);
+    cursor: pointer;
+    padding: 0;
+    border-radius: 50%;
+    transition: background 0.15s, color 0.15s;
+    font-size: 0.68rem;
+    flex-shrink: 0;
+}
+
+.et-custom-pattern-remove:hover {
+    background: rgba(239, 68, 68, 0.18);
+    color: #f87171;
+}
+
+.et-custom-pattern-add-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* ── World Info Order Filter Sub-Panel ───────────────────────────────── */
+.et-ctx-wi-sub {
+    margin-left: 26px;
+    margin-top: 6px;
+    padding: 10px 12px 12px;
+    border-left: 2px solid color-mix(in srgb, var(--et-theme-color) 30%, rgba(255,255,255,0.08));
+    border-radius: 0 var(--et-radius-sm) var(--et-radius-sm) 0;
+    background: rgba(0,0,0,0.12);
+}
+
+/* ── Mode card grid (2×2) — mirrors Activity Mode button style ──── */
+.et-ctx-wi-mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.et-ctx-wi-mode-btn,
+.et-co-wi-mode-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 9px 6px 8px;
+    border-radius: var(--et-radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--et-text-muted);
+    cursor: pointer;
+    transition:
+        background 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease,
+        transform 0.12s ease,
+        box-shadow 0.16s ease;
+    font-family: var(--et-font-family, inherit);
+    text-align: center;
+    line-height: 1;
+    width: 100%;
+    min-height: 0;
+}
+
+.et-ctx-wi-mode-icon {
+    font-size: 0.88rem;
+    display: block;
+    transition: color 0.16s ease, transform 0.16s ease;
+}
+
+.et-ctx-wi-mode-name {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--et-text);
+    letter-spacing: 0.1px;
+    display: block;
+    transition: color 0.16s ease;
+}
+
+.et-ctx-wi-mode-sub {
+    font-size: 0.62rem;
+    color: var(--et-text-muted);
+    display: block;
+    transition: color 0.16s ease;
+    white-space: nowrap;
+}
+
+/* Hover */
+.et-ctx-wi-mode-btn:hover,
+.et-co-wi-mode-btn:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.20);
+    transform: translateY(-1px);
+}
+
+.et-ctx-wi-mode-btn:hover .et-ctx-wi-mode-icon,
+.et-co-wi-mode-btn:hover .et-ctx-wi-mode-icon {
+    color: var(--et-theme-color);
+    transform: scale(1.12);
+}
+
+/* Active / selected state */
+.et-ctx-wi-mode-btn-active {
+    background: color-mix(in srgb, var(--et-theme-color) 14%, transparent);
+    border-color: color-mix(in srgb, var(--et-theme-color) 55%, transparent);
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--et-theme-color) 18%, transparent),
+        0 3px 10px color-mix(in srgb, var(--et-theme-color) 12%, transparent);
+    transform: none;
+}
+
+.et-ctx-wi-mode-btn-active .et-ctx-wi-mode-icon {
+    color: var(--et-theme-color);
+}
+
+.et-ctx-wi-mode-btn-active .et-ctx-wi-mode-name {
+    color: color-mix(in srgb, var(--et-theme-color) 40%, white);
+}
+
+.et-ctx-wi-mode-btn-active .et-ctx-wi-mode-sub {
+    color: color-mix(in srgb, var(--et-theme-color) 50%, rgba(255,255,255,0.5));
+}
+
+/* ── Input fields — icon + label + input rows ───────────────────────── */
+.et-ctx-wi-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+.et-ctx-wi-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.et-ctx-wi-field-icon {
+    font-size: 0.72rem;
+    color: var(--et-theme-color);
+    width: 14px;
+    flex-shrink: 0;
+    text-align: center;
+    opacity: 0.8;
+}
+
+.et-ctx-wi-field-label {
+    font-size: 0.78rem;
+    color: var(--et-text-muted);
+    white-space: nowrap;
+    min-width: 76px;
+}
+
+.et-ctx-wi-field-input {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 9px;
+    border-radius: var(--et-radius-sm);
+    border: 1px solid rgba(255,255,255,0.11);
+    background: rgba(255,255,255,0.05);
+    color: var(--et-text);
+    font-size: 0.82rem;
+    font-family: var(--et-font-family, inherit);
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.et-ctx-wi-field-input:focus {
+    border-color: color-mix(in srgb, var(--et-theme-color) 60%, transparent);
+    background: rgba(255,255,255,0.07);
+}
+
+.et-ctx-wi-field-input::placeholder {
+    color: var(--et-text-muted);
+    opacity: 0.55;
+}
+
+/* Very narrow viewport: reduce left margin, hide sub-labels */
+@media (max-width: 380px) {
+    .et-ctx-wi-sub {
+        margin-left: 8px;
+    }
+    .et-ctx-wi-mode-sub {
+        display: none;
+    }
+}
+
+/* ── Context Override modal: WI override toggle row ──────────────── */
+.et-ctx-wi-check-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: var(--et-radius-sm, 8px);
+    border: 1px solid var(--et-border, rgba(255,255,255,0.10));
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.et-ctx-wi-check-row:hover {
+    background: var(--et-hover, rgba(255,255,255,0.07));
+    border-color: rgba(255,255,255,0.18);
+}
+
+.et-ctx-wi-check-row:has(.et-ctx-radio-input:checked) {
+    border-color: color-mix(in srgb, var(--et-theme-color, #4da6ff) 35%, transparent);
+    background: color-mix(in srgb, var(--et-theme-color, #4da6ff) 7%, transparent);
+}
+
+.et-ctx-wi-check-box {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 2px solid rgba(255,255,255,0.30);
+    background: transparent;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    position: relative;
+}
+
+.et-ctx-wi-check-box::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 4px;
+    width: 5px;
+    height: 9px;
+    border: 2px solid transparent;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg) scale(0);
+    transform-origin: center;
+    transition: transform 0.15s ease, border-color 0.15s;
+}
+
+.et-ctx-radio-input:checked + .et-ctx-wi-check-box {
+    border-color: var(--et-theme-color, #4da6ff);
+    background: var(--et-theme-color, #4da6ff);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--et-theme-color, #4da6ff) 20%, transparent);
+}
+
+.et-ctx-radio-input:checked + .et-ctx-wi-check-box::after {
+    border-color: #fff;
+    transform: rotate(45deg) scale(1);
+}
+
+.et-ctx-wi-check-label {
+    font-size: 0.84rem;
+    color: var(--et-text, #e0e0e0);
+    flex: 1;
+    line-height: 1.3;
+}
+

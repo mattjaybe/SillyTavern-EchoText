@@ -243,7 +243,49 @@
                                 <span class="et-label-text"><i class="fa-solid fa-globe"></i> World Info /
                                     Lorebook</span>
                             </label>
-                            <div class="et-hint et-hint-indent">Include active World Info / Lorebook entries. <b>Note:</b> Only entries with an Insertion Order of 250 or higher are used.</div>
+                            <div class="et-hint et-hint-indent">Configure which World Info / Lorebook entries to include in context.</div>
+                        </div>
+
+                        <div class="et-ctx-wi-sub" id="et-ctx-wi-sub_panel" style="display:none;">
+                            <div class="et-ctx-wi-mode-grid">
+                                <button class="et-ctx-wi-mode-btn" type="button" data-mode="min_order" title="Include all entries at or above a minimum insertion order value">
+                                    <i class="fa-solid fa-chevron-up et-ctx-wi-mode-icon"></i>
+                                    <span class="et-ctx-wi-mode-name">Min Order</span>
+                                    <span class="et-ctx-wi-mode-sub">≥ threshold</span>
+                                </button>
+                                <button class="et-ctx-wi-mode-btn" type="button" data-mode="range" title="Include entries whose insertion order falls between a min and max value">
+                                    <i class="fa-solid fa-left-right et-ctx-wi-mode-icon"></i>
+                                    <span class="et-ctx-wi-mode-name">Order Range</span>
+                                    <span class="et-ctx-wi-mode-sub">min → max</span>
+                                </button>
+                                <button class="et-ctx-wi-mode-btn" type="button" data-mode="targeted" title="Include only entries whose insertion order exactly matches one of your values">
+                                    <i class="fa-solid fa-crosshairs et-ctx-wi-mode-icon"></i>
+                                    <span class="et-ctx-wi-mode-name">Targeted</span>
+                                    <span class="et-ctx-wi-mode-sub">exact values</span>
+                                </button>
+                                <button class="et-ctx-wi-mode-btn" type="button" data-mode="custom" title="Combine range and targeted — entries matching either condition are included">
+                                    <i class="fa-solid fa-sliders et-ctx-wi-mode-icon"></i>
+                                    <span class="et-ctx-wi-mode-name">Custom</span>
+                                    <span class="et-ctx-wi-mode-sub">full control</span>
+                                </button>
+                            </div>
+                            <div class="et-ctx-wi-inputs">
+                                <div class="et-ctx-wi-field" id="et-ctx-wi-row-min_panel">
+                                    <i class="fa-solid fa-chevron-up et-ctx-wi-field-icon"></i>
+                                    <span class="et-ctx-wi-field-label">Min Order</span>
+                                    <input type="number" class="et-ctx-wi-field-input" id="et_ctx_wi_min_panel" min="0" max="9999" step="1" value="250" placeholder="250">
+                                </div>
+                                <div class="et-ctx-wi-field" id="et-ctx-wi-row-max_panel" style="display:none;">
+                                    <i class="fa-solid fa-chevron-down et-ctx-wi-field-icon"></i>
+                                    <span class="et-ctx-wi-field-label">Max Order</span>
+                                    <input type="number" class="et-ctx-wi-field-input" id="et_ctx_wi_max_panel" min="0" max="9999" step="1" placeholder="no limit">
+                                </div>
+                                <div class="et-ctx-wi-field" id="et-ctx-wi-row-targeted_panel" style="display:none;">
+                                    <i class="fa-solid fa-hashtag et-ctx-wi-field-icon"></i>
+                                    <span class="et-ctx-wi-field-label">Order Values</span>
+                                    <input type="text" class="et-ctx-wi-field-input" id="et_ctx_wi_targeted_panel" placeholder="e.g. 100, 250, 500">
+                                </div>
+                            </div>
                         </div>
 
                         <div class="et-field" style="margin-top:8px;">
@@ -266,6 +308,18 @@
                                     <button id="et_strip_tag_add_panel" class="et-mem-add-btn" title="Add tag"><i class="fa-solid fa-plus"></i> Add</button>
                                 </div>
                                 <div class="et-hint et-hint-indent" style="margin-top:6px;">Tag names without angle brackets (e.g. <code>thinking</code>). Matching is case-insensitive.</div>
+                            </div>
+                            <div class="et-field" style="margin-top:10px;">
+                                <div class="et-strip-tags-label-row">
+                                    <label class="et-field-label" style="margin-bottom:0;"><i class="fa-solid fa-scissors"></i> Custom Patterns</label>
+                                </div>
+                                <div class="et-custom-patterns-list" id="et_custom_pattern_list_panel"></div>
+                                <div class="et-custom-pattern-add-row">
+                                    <input type="text" id="et_custom_pattern_start_panel" class="et-input-text" style="margin-bottom:0;flex:1;min-width:0;" placeholder="Start string…">
+                                    <input type="text" id="et_custom_pattern_end_panel" class="et-input-text" style="margin-bottom:0;flex:1;min-width:0;" placeholder="End string…">
+                                    <button id="et_custom_pattern_add_panel" class="et-mem-add-btn" title="Add pattern"><i class="fa-solid fa-plus"></i> Add</button>
+                                </div>
+                                <div class="et-hint et-hint-indent" style="margin-top:6px;">Strip text between two literal strings. Useful for models with unique delimiters (case-insensitive).</div>
                             </div>
                         </div>
 

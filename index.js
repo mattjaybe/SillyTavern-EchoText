@@ -496,6 +496,12 @@
         updateCustomDropdown('et_theme_custom', settings.theme);
         updateCustomDropdown('et_font_family_custom', settings.fontFamily);
 
+        // Strip reasoning tags
+        jQuery('#et_strip_thinking_enabled').prop('checked', settings.stripThinkingTagsEnabled !== false);
+        renderStripTagChips('et_strip_tag_chips');
+        renderCustomPatternRows('et_custom_pattern_list');
+        updateStripTagsSubsectionVisibility();
+
         // Also sync to panel accordion settings
         applySettingsToPanel();
     }
@@ -597,6 +603,11 @@
         jQuery('#et_memory_scope_hint_panel').text(
             _memScope === 'global' ? 'One shared memory pool for all characters.' : 'Each character keeps their own separate memory pool.'
         );
+        // Strip reasoning tags
+        jQuery('#et_strip_thinking_enabled_panel').prop('checked', settings.stripThinkingTagsEnabled !== false);
+        renderStripTagChips('et_strip_tag_chips_panel');
+        renderCustomPatternRows('et_custom_pattern_list_panel');
+        updateStripTagsSubsectionVisibility();
     }
 
     function updateProactiveToggleButtons() {
@@ -984,6 +995,81 @@
             saveSettings();
             // Sync with modal
             jQuery('#et_ctx_st_context').prop('checked', settings.ctxSTContext);
+        });
+
+        // Strip Reasoning Tags toggle
+        jQuery('#et_strip_thinking_enabled_panel').off('change.panel').on('change.panel', function () {
+            settings.stripThinkingTagsEnabled = jQuery(this).is(':checked');
+            saveSettings();
+            jQuery('#et_strip_thinking_enabled').prop('checked', settings.stripThinkingTagsEnabled);
+            updateStripTagsSubsectionVisibility();
+        });
+
+        // Strip tag chip remove
+        jQuery('#et_strip_tag_chips_panel').off('click.panel').on('click.panel', '.et-strip-tag-remove', function () {
+            const idx = parseInt(jQuery(this).data('index'), 10);
+            if (!Array.isArray(settings.stripThinkingTagList)) return;
+            settings.stripThinkingTagList.splice(idx, 1);
+            invalidateStripTagsCache();
+            saveSettings();
+            renderStripTagChips('et_strip_tag_chips_panel');
+            renderStripTagChips('et_strip_tag_chips');
+        });
+
+        // Strip tag add button
+        jQuery('#et_strip_tag_add_panel').off('click.panel').on('click.panel', function () {
+            const input = jQuery('#et_strip_tag_input_panel');
+            const val = (input.val() || '').trim().replace(/^<|>$/g, '');
+            if (!val) return;
+            if (!Array.isArray(settings.stripThinkingTagList)) settings.stripThinkingTagList = [];
+            if (!settings.stripThinkingTagList.includes(val)) {
+                settings.stripThinkingTagList.push(val);
+                invalidateStripTagsCache();
+                saveSettings();
+                renderStripTagChips('et_strip_tag_chips_panel');
+                renderStripTagChips('et_strip_tag_chips');
+            }
+            input.val('');
+        });
+
+        // Strip tag input enter key
+        jQuery('#et_strip_tag_input_panel').off('keydown.panel').on('keydown.panel', function (e) {
+            if (e.key === 'Enter') jQuery('#et_strip_tag_add_panel').trigger('click');
+        });
+
+        // Strip tag reset button
+        jQuery('#et_strip_tag_reset_panel').off('click.panel').on('click.panel', function () {
+            settings.stripThinkingTagList = [...STRIP_TAGS_DEFAULTS];
+            invalidateStripTagsCache();
+            saveSettings();
+            renderStripTagChips('et_strip_tag_chips_panel');
+            renderStripTagChips('et_strip_tag_chips');
+        });
+
+        // Custom pattern remove
+        jQuery('#et_custom_pattern_list_panel').off('click.panel').on('click.panel', '.et-custom-pattern-remove', function () {
+            const idx = parseInt(jQuery(this).data('index'), 10);
+            if (!Array.isArray(settings.stripCustomPatterns)) return;
+            settings.stripCustomPatterns.splice(idx, 1);
+            invalidateStripTagsCache();
+            saveSettings();
+            renderCustomPatternRows('et_custom_pattern_list_panel');
+            renderCustomPatternRows('et_custom_pattern_list');
+        });
+
+        // Custom pattern add
+        jQuery('#et_custom_pattern_add_panel').off('click.panel').on('click.panel', function () {
+            const start = (jQuery('#et_custom_pattern_start_panel').val() || '').trim();
+            const end = (jQuery('#et_custom_pattern_end_panel').val() || '').trim();
+            if (!start || !end) return;
+            if (!Array.isArray(settings.stripCustomPatterns)) settings.stripCustomPatterns = [];
+            settings.stripCustomPatterns.push({ start, end });
+            invalidateStripTagsCache();
+            saveSettings();
+            renderCustomPatternRows('et_custom_pattern_list_panel');
+            renderCustomPatternRows('et_custom_pattern_list');
+            jQuery('#et_custom_pattern_start_panel').val('');
+            jQuery('#et_custom_pattern_end_panel').val('');
         });
 
         // Font size
@@ -2217,17 +2303,99 @@
     // THINKING / REASONING TAG HELPER
     // ============================================================
 
-    /**
-     * Strips AI thinking/reasoning tag blocks from text before token counting.
-     * Handles: <thinking>, <think>, <thought>, <reasoning>, <reason> (case-insensitive).
-     * This prevents internal model reasoning from inflating context budgets.
-     */
+    const STRIP_TAGS_DEFAULTS = ['thinking', 'think', 'thought', 'reasoning', 'reason', 'gemma4'];
+
+    // Special non-XML patterns keyed by reserved name
+    const SPECIAL_PATTERNS = {
+        gemma4: {
+            paired: /<\|channel>thought[\s\S]*?<channel\|>/gi,
+            dangling: /<\|channel>thought[\s\S]*$/gi
+        }
+    };
+
+    let _stripTagsRegex = null;
+    let _stripTagsListHash = '';
+
+    function getStripTagsRegex() {
+        const allTags = (Array.isArray(settings.stripThinkingTagList) && settings.stripThinkingTagList.length)
+            ? settings.stripThinkingTagList
+            : STRIP_TAGS_DEFAULTS;
+        const customPatterns = Array.isArray(settings.stripCustomPatterns) ? settings.stripCustomPatterns : [];
+        const hash = allTags.join('\x00') + '\x01' + JSON.stringify(customPatterns);
+        if (hash !== _stripTagsListHash || !_stripTagsRegex) {
+            const xmlTags = allTags.filter(t => !SPECIAL_PATTERNS[t]);
+            const specials = allTags.filter(t => !!SPECIAL_PATTERNS[t]).map(key => SPECIAL_PATTERNS[key]);
+            const customs = customPatterns
+                .filter(p => p && p.start && p.end)
+                .map(p => {
+                    const es = p.start.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const ee = p.end.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    return {
+                        paired: new RegExp(es + '[\\s\\S]*?' + ee, 'gi'),
+                        dangling: new RegExp(es + '[\\s\\S]*$', 'gi')
+                    };
+                });
+            let result = { paired: null, dangling: null, specials, customs };
+            if (xmlTags.length) {
+                const pattern = xmlTags.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+                result.paired = new RegExp(`<(${pattern})[^>]*>[\\s\\S]*?<\\/\\1>`, 'gi');
+                result.dangling = new RegExp(`<(${pattern})[^>]*>[\\s\\S]*$`, 'gi');
+            }
+            _stripTagsRegex = result;
+            _stripTagsListHash = hash;
+        }
+        return _stripTagsRegex;
+    }
+
+    function invalidateStripTagsCache() {
+        _stripTagsRegex = null;
+        _stripTagsListHash = '';
+    }
+
     function stripThinkingTags(text) {
         if (!text) return text;
-        return String(text).replace(
-            /<(thinking|think|thought|reasoning|reason)[^>]*>[\s\S]*?<\/\1>/gi,
-            ''
-        ).trim();
+        if (settings.stripThinkingTagsEnabled === false) return String(text);
+        const re = getStripTagsRegex();
+        let result = String(text);
+        if (re.paired) result = result.replace(re.paired, '');
+        if (re.dangling) result = result.replace(re.dangling, '');
+        for (const sp of re.specials) {
+            result = result.replace(sp.paired, '').replace(sp.dangling, '');
+        }
+        for (const cp of re.customs) {
+            result = result.replace(cp.paired, '').replace(cp.dangling, '');
+        }
+        return result.trim();
+    }
+
+    function renderStripTagChips(containerId) {
+        const container = jQuery('#' + containerId);
+        if (!container.length) return;
+        const tags = Array.isArray(settings.stripThinkingTagList) ? settings.stripThinkingTagList : [];
+        container.html(tags.map((tag, i) => {
+            const safeTag = String(tag).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `<span class="et-strip-tag-chip">${safeTag}<button class="et-strip-tag-remove" data-index="${i}" title="Remove" aria-label="Remove ${safeTag}"><i class="fa-solid fa-xmark"></i></button></span>`;
+        }).join(''));
+    }
+
+    function renderCustomPatternRows(containerId) {
+        const container = jQuery('#' + containerId);
+        if (!container.length) return;
+        const patterns = Array.isArray(settings.stripCustomPatterns) ? settings.stripCustomPatterns : [];
+        if (!patterns.length) {
+            container.html('');
+            return;
+        }
+        container.html(patterns.map((p, i) => {
+            const safeStart = String(p.start || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safeEnd = String(p.end || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `<div class="et-custom-pattern-row"><span class="et-custom-pattern-label"><code>${safeStart}</code> → <code>${safeEnd}</code></span><button class="et-custom-pattern-remove" data-index="${i}" title="Remove"><i class="fa-solid fa-xmark"></i></button></div>`;
+        }).join(''));
+    }
+
+    function updateStripTagsSubsectionVisibility() {
+        const visible = settings.stripThinkingTagsEnabled !== false;
+        jQuery('.et-strip-tags-sub').toggle(visible);
     }
 
     // ============================================================
@@ -6323,7 +6491,10 @@
             buildFontDropdownHtml,
             loadGoogleFont,
             updatePanelStatusRow,
-            openThemeEditor: () => { if (themeEditor) themeEditor.openThemeEditor(); moveModalToPortal('#et-theme-editor-overlay'); }
+            openThemeEditor: () => { if (themeEditor) themeEditor.openThemeEditor(); moveModalToPortal('#et-theme-editor-overlay'); },
+            renderStripTagChips,
+            renderCustomPatternRows,
+            invalidateStripTagsCache
         });
 
         themeEditor = window.EchoTextThemeEditor.createThemeEditor({
