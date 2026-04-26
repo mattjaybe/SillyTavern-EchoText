@@ -6,7 +6,7 @@
 
 A [SillyTavern](https://github.com/SillyTavern/SillyTavern) extension that adds a floating, iMessage-style chat panel — a private side channel for casual, intimate conversations with any character, while your roleplay continues in the background.
 
-[![Version](https://img.shields.io/badge/version-1.1.5-blue.svg)](manifest.json)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](manifest.json)
 [![SillyTavern](https://img.shields.io/badge/SillyTavern-Extension-orange.svg)](https://github.com/SillyTavern/SillyTavern)
 
 </div>
@@ -30,6 +30,12 @@ It lives as a draggable, resizable panel floating over SillyTavern. Text a diffe
 ---
 
 ## Updates
+
+**v1.2.0**:
+* New Feature: More granular World Info / Lorebook control. Four new options: Minimum Order, Order Range, Targeted Order, and Custom. You can set it globally in Settings > Context or per-character in Untethered mode's Context overrides
+* Setting: Gemma 4's unique thinking/reasoning tag added to list of Strip Reasoning Tags. Note: if you don't see gemma4 in the list under Tags to Strip, click on Reset for it to show
+* Setting: Custom Pattern option for any future models with unique tags or strings for stripping out thinking/reasoning
+* Bug Fix: Image Generation, selfie requests not working correctly in certain circumstances
 
 **v1.1.5**:
 * New Feature: Persona added as a Context override option, works per-character
@@ -108,6 +114,7 @@ Everything is accessible from the EchoText Settings, opened via the three-dot ov
 |:---|:---|
 | **Enable EchoText** | Master on/off toggle for the floating button and panel |
 | **Dynamic Emotion System** | Track the character's emotional state across all 9 Plutchik emotions |
+| **Swiped Messages** | Save previous AI responses when regenerating a message. |
 | **Auto-Open on Reload** | Automatically open the panel when SillyTavern loads |
 | **Auto-Load Last Character** | Resume with the character you were texting in the previous session |
 | **Auto-scroll to Latest** | Keep the chat scrolled to the newest message automatically |
@@ -141,7 +148,8 @@ Control what background information the character has access to when generating 
 | **Personality** | The character's personality field |
 | **Scenario** | The scenario/world context from the character card |
 | **Your Persona** | Your active SillyTavern persona |
-| **World Info / Lorebook** | Active World Info entries with an Insertion Order of 250 or higher |
+| **World Info / Lorebook** | Active World Info entries with four options to choose from |
+| **Strip Reasoning Tags** | Remove AI reasoning/thinking tag blocks from messages before they enter context |
 
 ---
 
@@ -150,6 +158,7 @@ Control what background information the character has access to when generating 
 | Setting | Description |
 |:---|:---|
 | **Theme** | 8 built-in visual themes with distinct color palettes |
+| **Theme Editor** | Create and add your own custom themes to EchoText |
 | **Font Size** | 10–24px slider |
 | **Font Family** | Choose from a curated list of Google Fonts, loaded live |
 | **Glassmorphism Blur** | Controls the frosted-glass background blur (0–40px) |
@@ -263,6 +272,8 @@ Three dimensions, fully adjustable:
 | **Voice** | Formal, Casual, Poetic, Direct, Theatrical, Banter, Cryptic, Nurturing, and more |
 
 Mood and Personality has an **Intensity slider** (0–100%) to dial in how strongly it colors the responses — a hint of mystery or full tsundere mode, entirely your call.
+
+In the menu, you'll find Context. Here, you can override the global Context information in Settings with tragerted, per-character context. Change the Description, Scenario, Personality, Lorebook entries, Persona, and Texting Style.
 
 Your active selections appear as colored icon badges in the panel header for a quick at-a-glance reminder. Chat Influence settings are also saved and restored with Chat Archives, so loading an old conversation brings back exactly the flavor it had.
 
