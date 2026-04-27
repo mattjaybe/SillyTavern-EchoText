@@ -543,6 +543,18 @@
         jQuery('#et_ctx_persona_panel').prop('checked', settings.ctxPersona === true);
         jQuery('#et_ctx_authors_note_panel').prop('checked', settings.ctxAuthorsNote === true);
         jQuery('#et_ctx_world_info_panel').prop('checked', settings.ctxWorldInfo === true);
+        // World Info sub-panel — toggle visibility and apply saved mode state
+        const _wiEnabled = settings.ctxWorldInfo === true;
+        jQuery('#et-ctx-wi-sub_panel').toggle(_wiEnabled);
+        if (_wiEnabled) {
+            const _wiMode = settings.ctxWorldInfoMode || 'min_order';
+            jQuery('#et-ctx-wi-sub_panel .et-ctx-wi-mode-btn').removeClass('et-ctx-wi-mode-btn-active');
+            jQuery('#et-ctx-wi-sub_panel .et-ctx-wi-mode-btn[data-mode="' + _wiMode + '"]').addClass('et-ctx-wi-mode-btn-active');
+            jQuery('#et_ctx_wi_min_panel').val(typeof settings.ctxWorldInfoMinOrder === 'number' ? settings.ctxWorldInfoMinOrder : 250);
+            jQuery('#et_ctx_wi_max_panel').val(typeof settings.ctxWorldInfoMaxOrder === 'number' ? String(settings.ctxWorldInfoMaxOrder) : '');
+            jQuery('#et_ctx_wi_targeted_panel').val(Array.isArray(settings.ctxWorldInfoTargetedOrders) ? settings.ctxWorldInfoTargetedOrders.join(', ') : '');
+            toggleWIPanelRows(_wiMode);
+        }
         jQuery('#et_ctx_st_messages_panel').prop('checked', settings.ctxSTMessages === true);
         jQuery('#et_ctx_st_context_panel').prop('checked', settings.ctxSTContext === true);
         jQuery('#et_proactive_rate_limit_panel').val(settings.proactiveRateLimitMinutes || 180);
@@ -981,6 +993,42 @@
             saveSettings();
             // Sync with modal
             jQuery('#et_ctx_world_info').prop('checked', settings.ctxWorldInfo);
+            // Toggle sub-panel
+            jQuery('#et-ctx-wi-sub_panel').toggle(settings.ctxWorldInfo);
+            if (settings.ctxWorldInfo) {
+                const _m = settings.ctxWorldInfoMode || 'min_order';
+                jQuery('#et-ctx-wi-sub_panel .et-ctx-wi-mode-btn').removeClass('et-ctx-wi-mode-btn-active');
+                jQuery('#et-ctx-wi-sub_panel .et-ctx-wi-mode-btn[data-mode="' + _m + '"]').addClass('et-ctx-wi-mode-btn-active');
+                toggleWIPanelRows(_m);
+            }
+        });
+
+        // World Info mode buttons (panel)
+        jQuery('#et-ctx-wi-sub_panel').off('click.wi-panel').on('click.wi-panel', '.et-ctx-wi-mode-btn', function () {
+            const mode = jQuery(this).data('mode');
+            settings.ctxWorldInfoMode = mode;
+            saveSettings();
+            jQuery('#et-ctx-wi-sub_panel .et-ctx-wi-mode-btn').removeClass('et-ctx-wi-mode-btn-active');
+            jQuery(this).addClass('et-ctx-wi-mode-btn-active');
+            toggleWIPanelRows(mode);
+        });
+
+        // World Info input fields (panel)
+        jQuery('#et_ctx_wi_min_panel').off('input.wi-panel').on('input.wi-panel', function () {
+            const val = parseInt(jQuery(this).val(), 10);
+            settings.ctxWorldInfoMinOrder = isNaN(val) ? 250 : val;
+            saveSettings();
+        });
+        jQuery('#et_ctx_wi_max_panel').off('input.wi-panel').on('input.wi-panel', function () {
+            const raw = jQuery(this).val().trim();
+            const val = parseInt(raw, 10);
+            settings.ctxWorldInfoMaxOrder = (raw === '' || isNaN(val)) ? null : val;
+            saveSettings();
+        });
+        jQuery('#et_ctx_wi_targeted_panel').off('input.wi-panel').on('input.wi-panel', function () {
+            const raw = jQuery(this).val().trim();
+            settings.ctxWorldInfoTargetedOrders = !raw ? [] : raw.split(',').map(function (v) { return parseInt(v.trim(), 10); }).filter(function (n) { return !isNaN(n); });
+            saveSettings();
         });
 
         jQuery('#et_ctx_st_messages_panel').off('change.panel').on('change.panel', function () {
@@ -2103,6 +2151,22 @@
                     charRefParts.push(`World Information:\n${worldInfoData}`);
                 }
             } catch (e) { /* ignore */ }
+        } else if (!tethered && contextOverride) {
+            // Per-character World Info override (set in Character Context modal)
+            const _wiOv = contextOverride.getOverridesForCurrentChar();
+            if (_wiOv.wiOverrideEnabled === true) {
+                try {
+                    const worldInfoData = await getActiveWorldInfoEntries({
+                        mode:           _wiOv.wiMode || 'min_order',
+                        minOrder:       typeof _wiOv.wiMinOrder === 'number' ? _wiOv.wiMinOrder : 250,
+                        maxOrder:       typeof _wiOv.wiMaxOrder === 'number' ? _wiOv.wiMaxOrder : null,
+                        targetedOrders: Array.isArray(_wiOv.wiTargetedOrders) ? _wiOv.wiTargetedOrders : [],
+                    });
+                    if (worldInfoData) {
+                        charRefParts.push(`World Information:\n${worldInfoData}`);
+                    }
+                } catch (e) { /* ignore */ }
+            }
         }
         if (charRefParts.length > 0) {
             prompt += `\n\n<character_reference>\n${charRefParts.join('\n\n')}\n</character_reference>`;
@@ -2177,11 +2241,10 @@
         return prompt;
     }
 
-    async function getActiveWorldInfoEntries() {
+    async function getActiveWorldInfoEntries(opts) {
         // Fetches lorebook entries for the current character via ST's /api/worldinfo/get
-        // endpoint. Includes all non-disabled entries with order >= 250 — this threshold
-        // captures both "Constant" (always-on) entries and high-priority normal entries
-        // that carry significant lore context, without pulling in minor keyword-only entries.
+        // endpoint. Filter mode is driven by ctxWorldInfoMode (global setting), which can
+        // be overridden per-character via an optional `opts` object.
         try {
             const char = getCurrentCharacter();
             if (!char) return null;
@@ -2212,16 +2275,40 @@
             const entryMap = bookData?.entries;
             if (!entryMap || typeof entryMap !== 'object') return null;
 
-            // Collect entries with order >= 250 that are not disabled.
-            // "Constant" (blue) entries in ST have a high order by default (e.g. 950);
-            // normal keyword entries can also qualify if the author set order >= 250.
-            const ORDER_THRESHOLD = 250;
+            // Filter entries based on the configured mode.
+            // Per-character overrides (opts) take precedence over global settings.
+            const mode           = (opts && opts.mode) || settings.ctxWorldInfoMode || 'min_order';
+            const minOrder       = (opts && typeof opts.minOrder === 'number') ? opts.minOrder
+                                   : (typeof settings.ctxWorldInfoMinOrder === 'number' ? settings.ctxWorldInfoMinOrder : 250);
+            const maxOrder       = (opts && 'maxOrder' in opts) ? opts.maxOrder
+                                   : (typeof settings.ctxWorldInfoMaxOrder === 'number' ? settings.ctxWorldInfoMaxOrder : null);
+            const targetedOrders = (opts && Array.isArray(opts.targetedOrders))
+                ? opts.targetedOrders.map(Number).filter(function (n) { return !isNaN(n); })
+                : (Array.isArray(settings.ctxWorldInfoTargetedOrders)
+                    ? settings.ctxWorldInfoTargetedOrders.map(Number).filter(function (n) { return !isNaN(n); })
+                    : []);
+
             const texts = [];
             Object.values(entryMap).forEach(entry => {
                 if (!entry) return;
                 if (entry.disable || entry.disabled) return;
                 const order = typeof entry.order === 'number' ? entry.order : 0;
-                if (order < ORDER_THRESHOLD) return;
+
+                let include = false;
+                if (mode === 'min_order') {
+                    include = order >= minOrder;
+                } else if (mode === 'range') {
+                    include = order >= minOrder && (maxOrder === null || order <= maxOrder);
+                } else if (mode === 'targeted') {
+                    include = targetedOrders.includes(order);
+                } else if (mode === 'custom') {
+                    include = (order >= minOrder && (maxOrder === null || order <= maxOrder))
+                        || (targetedOrders.length > 0 && targetedOrders.includes(order));
+                } else {
+                    include = order >= minOrder;
+                }
+
+                if (!include) return;
                 const text = (entry.content || entry.text || '').trim();
                 if (text) texts.push(text);
             });
@@ -2396,6 +2483,12 @@
     function updateStripTagsSubsectionVisibility() {
         const visible = settings.stripThinkingTagsEnabled !== false;
         jQuery('.et-strip-tags-sub').toggle(visible);
+    }
+
+    function toggleWIPanelRows(mode) {
+        jQuery('#et-ctx-wi-row-min_panel').toggle(mode === 'min_order' || mode === 'range' || mode === 'custom');
+        jQuery('#et-ctx-wi-row-max_panel').toggle(mode === 'range' || mode === 'custom');
+        jQuery('#et-ctx-wi-row-targeted_panel').toggle(mode === 'targeted' || mode === 'custom');
     }
 
     // ============================================================
