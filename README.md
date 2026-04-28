@@ -6,7 +6,7 @@
 
 A [SillyTavern](https://github.com/SillyTavern/SillyTavern) extension that adds a floating, iMessage-style chat panel — a private side channel for casual, intimate conversations with any character, while your roleplay continues in the background.
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](manifest.json)
+[![Version](https://img.shields.io/badge/version-1.2.5-blue.svg)](manifest.json)
 [![SillyTavern](https://img.shields.io/badge/SillyTavern-Extension-orange.svg)](https://github.com/SillyTavern/SillyTavern)
 
 </div>
@@ -30,6 +30,9 @@ It lives as a draggable, resizable panel floating over SillyTavern. Text a diffe
 ---
 
 ## Updates
+
+**v1.2.5**:
+* Overhauled and improved the Swiped Messages feature
 
 **v1.2.0**:
 * New Feature: More granular World Info / Lorebook control. Four new options: Minimum Order, Order Range, Targeted Order, and Custom. You can set it globally in Settings > Context or per-character in Untethered mode's Context overrides
