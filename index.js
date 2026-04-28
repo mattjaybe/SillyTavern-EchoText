@@ -1975,20 +1975,22 @@
         }
 
         // User persona description
-        try {
-            const powerUser = SillyTavern.getContext().powerUserSettings || {};
-            const personaDesc = (powerUser.persona_description || '').trim();
-            if (personaDesc) {
-                finalUserParts.push(`<user_persona>\n${userName}'s persona: ${expandTimeDateMacros(replaceMacros(personaDesc))}\n</user_persona>`);
-            }
-        } catch (e) { /* ignore */ }
+        if (settings.ctxPersona === true) {
+            try {
+                const powerUser = SillyTavern.getContext().powerUserSettings || {};
+                const personaDesc = (powerUser.persona_description || '').trim();
+                if (personaDesc) {
+                    finalUserParts.push(`<user_persona>\n${userName}'s persona: ${expandTimeDateMacros(replaceMacros(personaDesc))}\n</user_persona>`);
+                }
+            } catch (e) { /* ignore */ }
+        }
 
         // Character card — wrapped in XML so models treat it as reference data, not output
         const charDescription = (char?.description || char?.data?.description || '').trim();
         const charPersonality  = (char?.personality  || char?.data?.personality  || '').trim();
         const charCardParts = [];
-        if (charDescription) charCardParts.push(`${charName}'s description: ${expandTimeDateMacros(replaceMacros(charDescription))}`);
-        if (charPersonality)  charCardParts.push(`${charName}'s personality: ${expandTimeDateMacros(replaceMacros(charPersonality))}`);
+        if (settings.ctxDescription !== false && charDescription) charCardParts.push(`${charName}'s description: ${expandTimeDateMacros(replaceMacros(charDescription))}`);
+        if (settings.ctxPersonality !== false && charPersonality)  charCardParts.push(`${charName}'s personality: ${expandTimeDateMacros(replaceMacros(charPersonality))}`);  
         if (charCardParts.length > 0) finalUserParts.push(`<character_reference>\n${charCardParts.join('\n\n')}\n</character_reference>`);
 
         // Generation cue (user-editable via Prompt Manager — supports {{char}} macro)
@@ -2109,7 +2111,7 @@
         let prompt = getPrompt('promptSystemBase');
 
         // User's persona description
-        if (tethered ? settings.ctxPersona === true : true) {
+        if (settings.ctxPersona === true) {
             try {
                 const powerUser = SillyTavern.getContext().powerUserSettings || {};
                 const personaDescription = powerUser.persona_description || '';
@@ -2135,14 +2137,14 @@
         // Character card fields — wrapped in <character_reference> XML tags so models
         // treat them as scoped reference data rather than content to reproduce.
         const charRefParts = [];
-        if ((tethered ? settings.ctxDescription !== false : true) && effectiveDescription) {
+        if (settings.ctxDescription !== false && effectiveDescription) {
             charRefParts.push(`${name}'s description: ${expandTimeDateMacros(replaceMacros(effectiveDescription))}`);
         }
-        if ((tethered ? settings.ctxPersonality !== false : true) && effectivePersonality) {
+        if (settings.ctxPersonality !== false && effectivePersonality) {
             charRefParts.push(`${name}'s personality: ${expandTimeDateMacros(replaceMacros(effectivePersonality))}`);
         }
-        if ((tethered ? settings.ctxScenario !== false : true) && effectiveScenario) {
-            charRefParts.push(`Scenario: ${expandTimeDateMacros(replaceMacros(effectiveScenario))}`);
+        if (settings.ctxScenario !== false && effectiveScenario) {
+            charRefParts.push(`Scenario: ${expandTimeDateMacros(replaceMacros(effectiveScenario))}`);  
         }
         if (tethered && settings.ctxWorldInfo === true) {
             try {
