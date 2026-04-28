@@ -2867,7 +2867,7 @@
         return { apiMessages, rawPrompt, systemPrompt };
     }
 
-    async function generateEchoText(history) {
+    async function generateEchoText(history, backupHistory = null) {
         if (isGenerating) return;
 
         const char = getCurrentCharacter();
@@ -3000,6 +3000,7 @@
                 }
 
                 const newHistory = [...workingHistory, charReply];
+                pruneSwipesOnPrevLastChar(newHistory);
                 saveChatHistory(newHistory);
                 if (isTetheredMode()) {
                     markProactiveCharacterActivity(getCharacterKey(), false, 'reply');
@@ -3012,9 +3013,17 @@
         } catch (err) {
             if (err.name === 'AbortError' || (abortController && abortController.signal.aborted)) {
                 log('Generation cancelled');
+                if (backupHistory) {
+                    saveChatHistory(backupHistory);
+                    renderMessages(backupHistory);
+                }
             } else {
                 error('Generation failed:', err);
                 toastr.error(`EchoText: ${err.message}`);
+                if (backupHistory) {
+                    saveChatHistory(backupHistory);
+                    renderMessages(backupHistory);
+                }
             }
         } finally {
             setTypingIndicatorVisible(false);
@@ -3023,6 +3032,465 @@
             abortController = null;
             updateSendButton(false);
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // SWIPE HELPERS — support functions for the Swiped Messages feature
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * After a new message is successfully appended, collapse the swipes on the
+     * previous last character message so it only retains the selected swipe.
+     * Pass the full history including the newly added message.
+     * Only runs when `settings.swipedMessages` is true.
+     */
+    function pruneSwipesOnPrevLastChar(history) {
+        if (!settings.swipedMessages) return;
+        // Find the last TWO non-user messages — the second-to-last is the one to prune
+        let lastCharIdx = -1;
+        let prevCharIdx = -1;
+        for (let i = history.length - 1; i >= 0; i--) {
+            if (!history[i].is_user) {
+                if (lastCharIdx === -1) { lastCharIdx = i; }
+                else { prevCharIdx = i; break; }
+            }
+        }
+        if (prevCharIdx === -1) return;
+        const msg = history[prevCharIdx];
+        if (!msg.swipes || msg.swipes.length <= 1) return;
+        const chosen = msg.swipes[Math.max(0, Math.min(msg.swipeIndex ?? 0, msg.swipes.length - 1))];
+        msg.swipes = [chosen];
+        msg.swipeIndex = 0;
+    }
+
+    /**
+     * Ensures a character message has a `swipes` array bootstrapped from its
+     * current state so new swipes can be appended.
+     */
+    function initSwipesOnMessage(msg) {
+        if (msg.swipes && msg.swipes.length > 0) return; // already initialised
+        msg.swipes = [{
+            mes: msg.mes || '',
+            send_date: msg.send_date || Date.now(),
+            imageAttachment: msg.imageAttachment ?? null,
+        }];
+        msg.swipeIndex = 0;
+    }
+
+    /**
+     * Syncs the parent message's top-level fields (mes, send_date, reactions,
+     * imageAttachment) from the swipe slot at `msg.swipeIndex`.
+     */
+    function syncMsgFromSwipe(msg) {
+        if (!msg.swipes || msg.swipes.length === 0) return;
+        const idx = Math.max(0, Math.min(msg.swipeIndex ?? 0, msg.swipes.length - 1));
+        msg.swipeIndex = idx;
+        const swipe = msg.swipes[idx];
+        msg.mes = swipe.mes;
+        msg.send_date = swipe.send_date;
+        // Reactions are message-level (not per-swipe) — never wiped by navigation
+        if (swipe.imageAttachment !== undefined && swipe.imageAttachment !== null) {
+            msg.imageAttachment = swipe.imageAttachment;
+        } else {
+            delete msg.imageAttachment;
+        }
+    }
+
+    /**
+     * Updates the swipe nav row and bubble text for a single message in-place,
+     * without triggering a full renderMessages() call.
+     *
+     * Scroll anchoring strategy: snapshot scrollHeight + scrollTop before any DOM
+     * changes, then after changes offset scrollTop by the delta so the user's view
+     * of the content stays pixel-perfect still.  smooth-scroll is suppressed for
+     * this correction so no animated jump is visible.
+     */
+    function updateSwipeInPlace(msgIndex, h) {
+        const msg = h[msgIndex];
+        if (!msg) return;
+
+        const inner = jQuery('#et-messages-inner');
+        const msgEl = inner.find(`.et-message[data-index="${msgIndex}"]`);
+        if (!msgEl.length) {
+            renderMessages(h, true);
+            return;
+        }
+
+        const swipeCount = msg.swipes ? msg.swipes.length : 1;
+        const swipeIdx   = msg.swipeIndex ?? 0;
+        const swipeIsLast = swipeIdx >= swipeCount - 1;
+
+        // ── Scroll anchor: snapshot before DOM changes ────────────────────
+        const messagesEl = document.getElementById('et-messages');
+        const scrollTopBefore    = messagesEl ? messagesEl.scrollTop    : 0;
+        const scrollHeightBefore = messagesEl ? messagesEl.scrollHeight : 0;
+
+        // ── DOM changes ───────────────────────────────────────────────────
+
+        // Update bubble text
+        msgEl.find('.et-bubble-text').html(formatMessageText(msg.mes));
+
+        // Update image attachment in-place
+        const existingImg = msgEl.find('.et-image-attachment');
+        const newImgHtml  = buildImageAttachmentHtml(msg, msgIndex);
+        if (newImgHtml) {
+            if (existingImg.length) {
+                existingImg.replaceWith(newImgHtml);
+            } else {
+                msgEl.find('.et-bubble-text').after(newImgHtml);
+            }
+            msgEl.find('.et-image-attachment-ready').off('click.swipeimg').on('click.swipeimg', function (e) {
+                e.stopPropagation();
+                const idx = parseInt(jQuery(this).data('image-index'), 10);
+                const m   = h[idx];
+                const navItems = h
+                    .filter(x => x?.imageAttachment?.url)
+                    .map(x => ({ url: x.imageAttachment.url, prompt: x.imageAttachment.prompt || '' }));
+                const currentUrl = m?.imageAttachment?.url || '';
+                const navIndex   = navItems.findIndex(x => x.url === currentUrl);
+                openGeneratedImageLightbox(currentUrl, m?.imageAttachment?.prompt || '',
+                    { navItems, navIndex: navIndex >= 0 ? navIndex : 0 });
+            });
+        } else {
+            existingImg.remove();
+        }
+
+        // Update swipe counter and button states
+        msgEl.find('.et-swipe-counter').text(`${swipeIdx + 1} / ${swipeCount}`);
+        msgEl.find('.et-swipe-prev').prop('disabled', swipeIdx === 0);
+        const nextBtn = msgEl.find('.et-swipe-next');
+        nextBtn.toggleClass('et-swipe-regen', swipeIsLast)
+               .attr('title', swipeIsLast ? 'Regenerate (new version)' : 'Next version')
+               .prop('disabled', false);
+
+        // ── Scroll anchor: compensate for height delta ────────────────────
+        // Any height change in the message shifts scrollHeight by the same amount.
+        // Adding that delta to scrollTop keeps every pixel of content stationary.
+        if (messagesEl) {
+            const delta = messagesEl.scrollHeight - scrollHeightBefore;
+            if (delta !== 0) {
+                const prevBehavior = messagesEl.style.scrollBehavior;
+                messagesEl.style.scrollBehavior = 'auto'; // suppress smooth-scroll for this correction
+                messagesEl.scrollTop = scrollTopBefore + delta;
+                messagesEl.style.scrollBehavior = prevBehavior;
+            }
+        }
+    }
+
+    /**
+     * Generates a new AI reply and appends it as an additional swipe on the
+     * character message at `history[msgIndex]`, without discarding the existing
+     * swipes.  Used when `settings.swipedMessages` is true.
+     *
+     * @param {Array}  history        - full current chat history (contains the message to swipe)
+     * @param {number} msgIndex       - index of the character message being regenerated
+     * @param {Array}  contextHistory - history slice used as API context (history.slice(0, msgIndex))
+     */
+    async function generateEchoTextSwipe(history, msgIndex, contextHistory) {
+        if (isGenerating) return;
+
+        const char = getCurrentCharacter();
+        if (!char) {
+            toastr.warning('Please select a character card to start texting.');
+            return;
+        }
+
+        isGenerating = true;
+        abortController = new AbortController();
+        updateSendButton(true);
+        setTypingIndicatorVisible(true);
+
+        // Work on a shallow copy so we don't mutate callers' array references
+        const workingHistory = [...history];
+        const msg = workingHistory[msgIndex];
+        if (!msg) {
+            isGenerating = false;
+            abortController = null;
+            updateSendButton(false);
+            setTypingIndicatorVisible(false);
+            return;
+        }
+
+        // Ensure the message has a swipes array so we can push to it
+        initSwipesOnMessage(msg);
+
+        const timing = getEmotionReplyTimingModel();
+
+        // Image detection on the last user message in the context slice
+        let pendingImageDetection = null;
+        let apiHistory = contextHistory;
+        const lastContextMsg = contextHistory.length > 0 ? contextHistory[contextHistory.length - 1] : null;
+        if (imageGeneration && settings.imageGenerationEnabled === true && lastContextMsg?.is_user) {
+            pendingImageDetection = imageGeneration.detectImageRequest(lastContextMsg.mes, contextHistory);
+            if (pendingImageDetection?.triggered) {
+                apiHistory = contextHistory.slice(0, -1);
+            }
+        }
+
+        let result = '';
+
+        try {
+            const { apiMessages, rawPrompt, systemPrompt } = await buildApiMessagesFromHistory(apiHistory);
+            await sleepWithAbort(Math.min(timing.replyDelayMs, 1500), abortController.signal);
+
+            const bypassTextGeneration = (imageGeneration && lastContextMsg?.is_user && pendingImageDetection?.triggered && settings.imageGenerationIncludeTextReply === false);
+
+            if (!bypassTextGeneration) {
+                result = await requestEchoTextCompletion({ apiMessages, rawPrompt, systemPrompt, signal: abortController.signal });
+            }
+
+            let imageReply = null;
+            if (imageGeneration && settings.imageGenerationEnabled === true && lastContextMsg?.is_user) {
+                if (pendingImageDetection?.triggered) {
+                    setTypingIndicatorVisible(false);
+                    setImageGeneratingIndicatorVisible(true);
+                }
+                imageReply = await imageGeneration.maybeGenerateImageReply(lastContextMsg.mes, contextHistory, abortController.signal);
+                setImageGeneratingIndicatorVisible(false);
+            }
+
+            const hasTextResponse = result && result.trim();
+            if (hasTextResponse || imageReply?.triggered) {
+                const trimmedResult = hasTextResponse ? cleanGeneratedResponse(result) : '';
+
+                if (hasTextResponse) {
+                    processMessageEmotion(trimmedResult, false);
+                }
+
+                const newSwipe = {
+                    mes: trimmedResult,
+                    send_date: Date.now(),
+                };
+
+                if (imageReply?.triggered) {
+                    newSwipe.imageAttachment = imageReply.result?.ok
+                        ? {
+                            status: 'ready',
+                            type: 'image',
+                            url: imageReply.result.url,
+                            mimeType: imageReply.result.mimeType || 'image/png',
+                            prompt: imageReply.result.prompt || imageReply.promptPayload?.prompt || '',
+                            triggerType: imageReply.detection?.type || 'direct_request'
+                        }
+                        : {
+                            status: 'error',
+                            type: 'image',
+                            error: imageReply.result?.error || 'Sorry, I could not generate an image right now.',
+                            triggerType: imageReply.detection?.type || 'direct_request'
+                        };
+
+                    if (imageReply.result?.ok && gallery) {
+                        try {
+                            gallery.addImage({
+                                charKey: getCharacterKey(),
+                                charName: getCharacterName(),
+                                avatarUrl: getAvatarUrlForCharacter(getCurrentCharacter()),
+                                url: imageReply.result.url,
+                                mimeType: imageReply.result.mimeType || 'image/png',
+                                prompt: imageReply.result.prompt || imageReply.promptPayload?.prompt || '',
+                                triggerType: imageReply.detection?.type || 'direct_request',
+                                createdAt: Date.now()
+                            });
+                        } catch (galleryErr) {
+                            warn('Failed to save generated image to gallery:', galleryErr);
+                        }
+                    }
+
+                    if (settings.imageGenerationIncludeTextReply === false && imageReply.result?.ok) {
+                        newSwipe.mes = '';
+                    }
+                }
+
+                // Append as a new swipe and navigate to it
+                msg.swipes.push(newSwipe);
+                msg.swipeIndex = msg.swipes.length - 1;
+                syncMsgFromSwipe(msg);
+
+                saveChatHistory(workingHistory);
+                if (isTetheredMode()) {
+                    markProactiveCharacterActivity(getCharacterKey(), false, 'reply');
+                    try { if (memorySystem) memorySystem.incrementTurn(); } catch (e) { /* ignore */ }
+                }
+                renderMessages(workingHistory);
+                setFabUnreadIndicator(panelOpen ? false : true);
+            }
+
+        } catch (err) {
+            if (err.name === 'AbortError' || (abortController && abortController.signal.aborted)) {
+                log('Swipe generation cancelled');
+            } else {
+                error('Swipe generation failed:', err);
+                toastr.error(`EchoText: ${err.message}`);
+            }
+            // On any failure or cancel, re-render with the unmodified original history
+            // (the new swipe was never pushed since we only push on success)
+            renderMessages(history);
+        } finally {
+            setTypingIndicatorVisible(false);
+            setImageGeneratingIndicatorVisible(false);
+            isGenerating = false;
+            abortController = null;
+            updateSendButton(false);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // BUBBLE TOUCH-SWIPE GESTURE (mobile)
+    // ──────────────────────────────────────────────────────────────────────────
+    /**
+     * Attaches a horizontal touch-swipe gesture to the last character bubble.
+     * Swipe left  → next swipe / regenerate.
+     * Swipe right → previous swipe (rubber-bands at the first).
+     * Includes live tracking, elastic snap-back, and slide-in/out animation.
+     */
+    function bindBubbleTouchSwipe(inner, msgIndex) {
+        if (msgIndex < 0) return;
+        const msgEl = inner.find(`.et-message[data-index="${msgIndex}"]`);
+        if (!msgEl.length) return;
+        const bubble = msgEl.find('.et-bubble-char')[0];
+        if (!bubble) return;
+
+        const AXIS_LOCK_PX = 8;   // min movement before axis is committed
+        const COMMIT_PX    = 55;  // min drag to trigger a swipe action
+
+        let startX = 0, startY = 0, currentDx = 0;
+        let isTracking = false;  // horizontal gesture confirmed
+        let isRejected = false;  // vertical scroll — ignore this gesture
+
+        function clearStyles() {
+            bubble.style.transition = '';
+            bubble.style.transform  = '';
+            bubble.style.opacity    = '';
+        }
+
+        function snapBack() {
+            bubble.style.transition = 'transform 0.30s cubic-bezier(0.34,1.56,0.64,1), opacity 0.20s ease-out';
+            bubble.style.transform  = '';
+            bubble.style.opacity    = '';
+            setTimeout(clearStyles, 330);
+        }
+
+        function elasticDeny(dx) {
+            // Tiny overshoot in the blocked direction signals "nothing here"
+            const rebound = dx < 0 ? 10 : -10;
+            bubble.style.transition = 'transform 0.10s ease-out';
+            bubble.style.transform  = `translateX(${rebound}px)`;
+            setTimeout(snapBack, 110);
+        }
+
+        function doCommit(direction) {
+            const exitX  = direction === 'next' ? -(bubble.offsetWidth * 0.55) : (bubble.offsetWidth * 0.55);
+            const enterX = -exitX;
+
+            // ── Phase 1: slide out ─────────────────────────────────────────
+            bubble.style.transition = 'transform 0.17s ease-in, opacity 0.17s ease-in';
+            bubble.style.transform  = `translateX(${exitX}px)`;
+            bubble.style.opacity    = '0';
+
+            setTimeout(() => {
+                const h   = getChatHistory();
+                const msg = h[msgIndex];
+                if (!msg) { clearStyles(); return; }
+
+                if (direction === 'next') {
+                    const currentIdx = msg.swipeIndex ?? 0;
+                    if (!msg.swipes || currentIdx >= msg.swipes.length - 1) {
+                        // Last swipe — trigger regen. Reset bubble and let the
+                        // generation flow handle the typing indicator etc.
+                        clearStyles();
+                        const contextHistory = h.slice(0, msgIndex);
+                        generateEchoTextSwipe(h, msgIndex, contextHistory);
+                        return;
+                    }
+                    msg.swipeIndex = currentIdx + 1;
+                } else {
+                    const currentIdx = msg.swipeIndex ?? 0;
+                    if (currentIdx <= 0) { snapBack(); return; }
+                    msg.swipeIndex = currentIdx - 1;
+                }
+
+                syncMsgFromSwipe(msg);
+                saveChatHistory(h);
+
+                // ── Phase 2: place at enter-from side (invisible) ──────────
+                bubble.style.transition = 'none';
+                bubble.style.transform  = `translateX(${enterX}px)`;
+                bubble.style.opacity    = '0';
+
+                // Update text/counter/buttons while the bubble is off-screen
+                updateSwipeInPlace(msgIndex, h);
+
+                // ── Phase 3: animate in ────────────────────────────────────
+                void bubble.offsetHeight; // force reflow
+                bubble.style.transition = 'transform 0.24s cubic-bezier(0.22,1,0.36,1), opacity 0.18s ease-out';
+                bubble.style.transform  = '';
+                bubble.style.opacity    = '';
+                setTimeout(clearStyles, 270);
+            }, 185);
+        }
+
+        bubble.addEventListener('touchstart', (e) => {
+            if (isGenerating || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            startX = t.clientX;
+            startY = t.clientY;
+            currentDx   = 0;
+            isTracking  = false;
+            isRejected  = false;
+            bubble.style.transition = 'none';
+        }, { passive: true });
+
+        bubble.addEventListener('touchmove', (e) => {
+            if (isRejected || e.touches.length !== 1) return;
+            const t  = e.touches[0];
+            const dx = t.clientX - startX;
+            const dy = t.clientY - startY;
+
+            if (!isTracking) {
+                // Haven't locked an axis yet
+                if (Math.abs(dx) < AXIS_LOCK_PX && Math.abs(dy) < AXIS_LOCK_PX) return;
+                if (Math.abs(dy) >= Math.abs(dx)) { isRejected = true; return; }
+                isTracking = true;
+            }
+
+            e.preventDefault(); // suppress vertical scroll while swiping horizontally
+            currentDx = dx;
+
+            // Rubber-band when swiping past the first swipe
+            const h   = getChatHistory();
+            const msg = h[msgIndex];
+            let effectiveDx = dx;
+            if (msg && dx > 0 && (msg.swipeIndex ?? 0) === 0) {
+                effectiveDx = dx * 0.22; // strong resistance — nothing to the left
+            }
+
+            const progress = Math.min(Math.abs(effectiveDx) / 180, 1);
+            bubble.style.transform = `translateX(${effectiveDx}px)`;
+            bubble.style.opacity   = String(1 - progress * 0.30);
+        }, { passive: false });
+
+        bubble.addEventListener('touchend', () => {
+            if (!isTracking) { bubble.style.transition = ''; return; }
+            const dx  = currentDx;
+            const h   = getChatHistory();
+            const msg = h[msgIndex];
+
+            if (Math.abs(dx) >= COMMIT_PX) {
+                if (dx < 0) {
+                    doCommit('next'); // swipe left = advance
+                } else {
+                    const canGoPrev = msg && msg.swipes && (msg.swipeIndex ?? 0) > 0;
+                    canGoPrev ? doCommit('prev') : elasticDeny(dx);
+                }
+            } else {
+                snapBack();
+            }
+        }, { passive: true });
+
+        bubble.addEventListener('touchcancel', () => {
+            isTracking = false;
+            clearStyles();
+        }, { passive: true });
     }
 
     /**
@@ -3380,7 +3848,7 @@
      * @param {Array}  historyAfter   - history after the message being regenerated
      * @param {string} targetCharKey  - avatar/name key of the character to regenerate
      */
-    async function generateEchoTextCombinedForChar(historyBefore, historyAfter, targetCharKey) {
+    async function generateEchoTextCombinedForChar(historyBefore, historyAfter, targetCharKey, backupHistory = null) {
         if (isGenerating) return;
         if (!groupManager) return;
 
@@ -3430,6 +3898,7 @@
                 };
                 // Stitch: preserve everything before, insert new reply, preserve everything after
                 const finalHistory = [...historyBefore, charReply, ...historyAfter];
+                pruneSwipesOnPrevLastChar(finalHistory);
                 groupManager.saveCombineHistory(groupId, finalHistory, !isTetheredMode());
                 renderMessages(finalHistory);
                 setFabUnreadIndicator(panelOpen ? false : true);
@@ -3437,9 +3906,17 @@
         } catch (err) {
             if (err.name === 'AbortError' || (abortController && abortController.signal.aborted)) {
                 log('Combined single-char regen cancelled');
+                if (backupHistory) {
+                    saveChatHistory(backupHistory);
+                    renderMessages(backupHistory);
+                }
             } else {
                 error('Combined single-char regen failed:', err);
                 toastr.error(`EchoText: ${err.message}`);
+                if (backupHistory) {
+                    saveChatHistory(backupHistory);
+                    renderMessages(backupHistory);
+                }
             }
         } finally {
             setTypingIndicatorVisible(false);
@@ -5249,6 +5726,9 @@
             return `<span class="et-read-receipt et-read-receipt-${state}" title="${tip}"><i class="fa-solid ${def.icon}"></i></span>`;
         };
 
+        // Index of the last character message — swipe nav is only rendered there
+        const lastCharMsgIndex = history.reduce((last, msg, i) => (!msg.is_user ? i : last), -1);
+
         history.forEach((msg, index) => {
             const isUser = msg.is_user;
             const formattedText = formatMessageText(msg.mes);
@@ -5309,12 +5789,25 @@
                 const verbosityBadge = verbosity && verbosity !== 'medium'
                     ? `<span class="et-verbosity-badge" title="${verbosityTooltips[verbosity] || 'Verbosity'}">${verbosityLabels[verbosity] || ''}</span>` : '';
 
+                // Swipe navigation — show nav only on the last character message
+                const hasSwipes = !!settings.swipedMessages && (index === lastCharMsgIndex);
+                const swipeCount = (hasSwipes && msg.swipes && msg.swipes.length > 0) ? msg.swipes.length : 1;
+                const swipeIdx = (hasSwipes && msg.swipes) ? Math.max(0, Math.min(msg.swipeIndex ?? 0, swipeCount - 1)) : 0;
+                const swipeIsLast = swipeIdx >= swipeCount - 1;
+                const swipeNavHtml = hasSwipes ? `
+                            <div class="et-swipe-nav">
+                                <button class="et-swipe-btn et-swipe-prev" data-index="${index}" title="Previous version"${swipeIdx === 0 ? ' disabled' : ''}><i class="fa-solid fa-chevron-left"></i></button>
+                                <span class="et-swipe-counter">${swipeIdx + 1} / ${swipeCount}</span>
+                                <button class="et-swipe-btn et-swipe-next${swipeIsLast ? ' et-swipe-regen' : ''}" data-index="${index}" title="${swipeIsLast ? 'Regenerate (new version)' : 'Next version'}"><i class="fa-solid fa-chevron-right"></i></button>
+                            </div>` : '';
+
                 bubbleHtml = `
                 <div class="et-message et-message-char" data-index="${index}">
                     <div class="et-message-body">
                         <div class="et-bubble et-bubble-char">
                             <div class="et-bubble-text">${formattedText}</div>
                             ${buildImageAttachmentHtml(msg, index)}
+                            ${swipeNavHtml}
                             <div class="et-message-footer">
                                 <div class="et-char-info-pill${showAvatar ? '' : ' et-pill-no-avatar'}">
                                     ${avatarHtml}
@@ -5395,6 +5888,45 @@
             toggleDotsMenu(btn, msgIndex, isUser, tethered);
         });
 
+        // Bind swipe navigation buttons
+        inner.find('.et-swipe-prev').on('click', function (e) {
+            e.stopPropagation();
+            closeAllDotMenus();
+            const msgIndex = parseInt(jQuery(this).data('index'));
+            const h = getChatHistory();
+            const msg = h[msgIndex];
+            if (!msg || !msg.swipes) return;
+            const newIdx = (msg.swipeIndex ?? 0) - 1;
+            if (newIdx < 0) return;
+            msg.swipeIndex = newIdx;
+            syncMsgFromSwipe(msg);
+            saveChatHistory(h);
+            updateSwipeInPlace(msgIndex, h);
+        });
+
+        inner.find('.et-swipe-next').on('click', function (e) {
+            e.stopPropagation();
+            closeAllDotMenus();
+            const msgIndex = parseInt(jQuery(this).data('index'));
+            const h = getChatHistory();
+            const msg = h[msgIndex];
+            if (!msg) return;
+            const currentIdx = msg.swipeIndex ?? 0;
+            // If no swipes array yet, or we're at the last swipe → generate a new one
+            if (!msg.swipes || currentIdx >= msg.swipes.length - 1) {
+                const contextHistory = h.slice(0, msgIndex);
+                generateEchoTextSwipe(h, msgIndex, contextHistory);
+                return;
+            }
+            if (currentIdx < msg.swipes.length - 1) {
+                // Navigate to next existing swipe
+                msg.swipeIndex = currentIdx + 1;
+                syncMsgFromSwipe(msg);
+                saveChatHistory(h);
+                updateSwipeInPlace(msgIndex, h);
+            }
+        });
+
         inner.find('.et-image-attachment-ready').on('click', function (e) {
             e.stopPropagation();
             const idx = parseInt(jQuery(this).data('image-index'), 10);
@@ -5411,6 +5943,11 @@
                 { navItems, navIndex: navIndex >= 0 ? navIndex : 0 }
             );
         });
+
+        // Bind touch-swipe gesture on the last char bubble (mobile only)
+        if (settings.swipedMessages && isMobileDevice() && lastCharMsgIndex >= 0) {
+            bindBubbleTouchSwipe(inner, lastCharMsgIndex);
+        }
 
         if (preserveScroll && messagesEl && savedScrollTop !== null) {
             // Restore the scroll position the user was at before the edit re-render
@@ -5750,13 +6287,20 @@
 
                     const targetCharKey = history[msgIndex]?.charKey
                         || groupManager.getActiveCharKey();
-                    generateEchoTextCombinedForChar(historyBefore, historyAfter, targetCharKey);
+                    generateEchoTextCombinedForChar(historyBefore, historyAfter, targetCharKey, history);
                 } else {
-                    // Solo mode: remove message and regenerate normally
-                    const truncated = history.slice(0, msgIndex);
-                    saveChatHistory(truncated);
-                    renderMessages(truncated);
-                    generateEchoText(truncated);
+                    // Solo/group-non-combine mode regen
+                    if (settings.swipedMessages) {
+                        // Swipe regen: keep the message in history and append a new variant
+                        const contextHistory = history.slice(0, msgIndex);
+                        generateEchoTextSwipe(history, msgIndex, contextHistory);
+                    } else {
+                        // Standard regen: remove message and regenerate
+                        const truncated = history.slice(0, msgIndex);
+                        saveChatHistory(truncated);
+                        renderMessages(truncated);
+                        generateEchoText(truncated, history);
+                    }
                 }
             }
             return;

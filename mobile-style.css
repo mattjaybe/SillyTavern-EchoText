@@ -880,18 +880,20 @@
    SWIPED MESSAGES â€” Mobile overrides
    â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* Always show swipe nav on mobile (no hover) */
+/* On mobile the touch-swipe gesture replaces hover-to-reveal.
+   Nav bar stays hidden at rest; appears on :active so tapping
+   the buttons still works. */
 .et-swipe-nav {
     opacity: 1 !important;
     pointer-events: auto !important;
 }
 
-/* Larger touch targets for swipe buttons */
+/* Larger touch targets for the buttons */
 .et-swipe-btn {
-    width: 30px !important;
-    height: 30px !important;
+    width: 32px !important;
+    height: 32px !important;
     font-size: 0.85rem !important;
-    opacity: 0.8 !important;
+    opacity: 0.85 !important;
 }
 
 /* Slightly larger counter text */

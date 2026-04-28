@@ -1367,6 +1367,7 @@ html.et-bg-light {
     scroll-behavior: smooth;
     min-height: 0;
     box-sizing: border-box;
+    overflow-anchor: none; /* manual scroll anchoring in updateSwipeInPlace */
 }
 
 .et-messages::-webkit-scrollbar {
@@ -2979,6 +2980,69 @@ html.et-bg-light {
 .et-bubble-reactions-bar:empty,
 .et-bubble-reactions-bar .et-active-reactions:empty {
     display: none;
+}
+
+/* ── Swiped Messages navigation row ──────────────────────────────────── */
+.et-swipe-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 4px 0 2px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin-top: 6px;
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.15s ease;
+}
+
+.et-swipe-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--et-text);
+    opacity: 0.6;
+    transition: opacity 0.15s, background 0.15s;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.et-swipe-btn > i {
+    pointer-events: none;
+}
+
+.et-swipe-btn:hover:not(:disabled) {
+    opacity: 1;
+    background: rgba(255,255,255,0.14);
+}
+
+.et-swipe-btn:disabled {
+    opacity: 0.18;
+    cursor: default;
+    pointer-events: none;
+}
+
+.et-swipe-btn.et-swipe-regen {
+    color: var(--et-theme-color);
+    opacity: 0.85;
+    border-color: rgba(var(--et-theme-color-rgb, 255,255,255), 0.30);
+}
+
+.et-swipe-counter {
+    font-size: 0.62rem;
+    color: var(--et-text);
+    opacity: 0.50;
+    min-width: 32px;
+    text-align: center;
+    user-select: none;
+    letter-spacing: 0.03em;
 }
 
 /* --- Confirm Modal (panel-scoped, not full-screen) --- */
