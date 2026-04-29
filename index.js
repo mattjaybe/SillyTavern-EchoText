@@ -2609,7 +2609,6 @@
             const charKey = char.avatar || char.name || 'unknown';
             groupManager.clearGroupChatHistory(groupId, charKey, untethered);
             clearEmotionState();
-            if (memorySystem) memorySystem.clearInsideJokes(charKey);
             if (untetheredChat) untetheredChat.resetUntetheredChat();
             return;
         }
@@ -2625,8 +2624,6 @@
         settings.chatHistory[key] = [];
         // Also reset emotion state when clearing history
         clearEmotionState();
-        // Clear inside jokes memory
-        if (memorySystem) memorySystem.clearInsideJokes(key);
         // Reset untethered influences globally
         if (untetheredChat) untetheredChat.resetUntetheredChat();
         saveSettings();
