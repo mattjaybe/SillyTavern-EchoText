@@ -65,6 +65,7 @@
     loadEchoTextModule('lib/st-context-emotion.js', 'EchoTextSTContextEmotion');
     loadEchoTextModule('lib/theme-editor.js', 'EchoTextThemeEditor');
     loadEchoTextModule('lib/context-override.js', 'EchoTextContextOverride');
+    loadEchoTextModule('lib/story-sync.js', 'EchoTextStorySync');
 
     // ============================================================
     // THEME PRESETS
@@ -106,6 +107,7 @@
     let stContextEmotion = null;
     let themeEditor = null;
     let contextOverride = null;
+    let storySync = null;
     let FA_REACTIONS = [];
     let selectedCharacterKey = null;
 
@@ -1535,6 +1537,16 @@
         return context.characters?.[context.characterId] || null;
     }
 
+    /** Attaches an in-story timestamp to a new phone message when Story Sync is active. */
+    function addStoryStamp(msg) {
+        if (!storySync || !msg) return msg;
+        try {
+            const story = storySync.stamp();
+            if (story) msg.story = story;
+        } catch (e) { /* ignore */ }
+        return msg;
+    }
+
     function getCharacterKey() {
         const char = getCurrentCharacter();
         if (!char) return null;
@@ -2202,6 +2214,11 @@
             prompt += buildEmotionContext();
         }
 
+        // ── 3b. STORY SYNC — witnessed RP scenes + current story time ───────────
+        if (tethered && storySync) {
+            prompt += storySync.buildPhoneContextBlock(char);
+        }
+
         // ── 4. BEHAVIOUR LOCK ────────────────────────────────────────────────────
         // Fiction frame + persona-lock reminder land last so they act as the final
         // instruction the model reads before generating — maximising adherence.
@@ -2355,15 +2372,25 @@
         }
     }
 
+    function getStoryMacroValues() {
+        try { return storySync ? storySync.getMacroValues() : null; } catch (e) { return null; }
+    }
+
     function getCurrentTimeMacroString() {
+        const story = getStoryMacroValues();
+        if (story && story.time) return story.time;
         return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     function getCurrentDateMacroString() {
+        const story = getStoryMacroValues();
+        if (story && story.date) return story.date;
         return new Date().toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
     }
 
     function getCurrentWeekdayMacroString() {
+        const story = getStoryMacroValues();
+        if (story && story.weekday) return story.weekday;
         return new Date().toLocaleDateString([], { weekday: 'long' });
     }
 
@@ -2537,6 +2564,9 @@
                 saveSettings();
             }
             history = settings.untetheredHistory[key];
+        } else if (storySync && storySync.isActive()) {
+            // Story Sync: each RP chat has its own phone (stored in chat metadata)
+            history = storySync.getHistory(key);
         } else {
             history = settings.chatHistory[key] || [];
         }
@@ -2585,6 +2615,10 @@
             saveSettings();
             return;
         }
+        if (storySync && storySync.isActive()) {
+            storySync.setHistory(key, history);
+            return;
+        }
         settings.chatHistory[key] = history;
         syncProactiveStateWithHistory(key, history);
         saveSettings();
@@ -2621,7 +2655,11 @@
             saveSettings();
             return;
         }
-        settings.chatHistory[key] = [];
+        if (storySync && storySync.isActive()) {
+            storySync.setHistory(key, []);
+        } else {
+            settings.chatHistory[key] = [];
+        }
         // Also reset emotion state when clearing history
         clearEmotionState();
         // Reset untethered influences globally
@@ -2956,6 +2994,7 @@
                     mes: trimmedResult,
                     send_date: Date.now()
                 };
+                addStoryStamp(charReply);
 
                 if (imageReply?.triggered) {
                     charReply.imageAttachment = imageReply.result?.ok
@@ -5084,6 +5123,7 @@
                 }
             }
         };
+        addStoryStamp(userMsg);
         // Detect memory-worthy spans in the user's message for manual highlighting
         if (memorySystem && settings.memoryEnabled && settings.memoryAutoExtract) {
             try {
@@ -5730,8 +5770,9 @@
             const isUser = msg.is_user;
             const formattedText = formatMessageText(msg.mes);
             const msgDate = new Date(msg.send_date || Date.now());
-            const time = msgDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-            const fullDateToolip = msgDate.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+            const storyLabel = (msg.story && storySync) ? storySync.formatStamp(msg.story) : null;
+            const time = storyLabel ? storyLabel.time : msgDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            const fullDateToolip = storyLabel ? storyLabel.tooltip : msgDate.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 
             let bubbleHtml;
             if (isUser) {
@@ -7328,9 +7369,32 @@
             warn
         });
 
+        storySync = window.EchoTextStorySync.createStorySync({
+            getSettings: () => settings,
+            saveSettings,
+            getUserName,
+            stripThinkingTags,
+            isTetheredMode,
+            isGroupSession: () => groupManager ? groupManager.isGroupSession() : false,
+            onChatChanged: () => {
+                // The phone history belongs to the RP chat — re-render for the new chat
+                if (panelOpen && storySync.isEnabled()) applySelectedCharacterToPanel();
+            },
+            onSettingsChanged: () => {
+                startProactiveScheduler();
+                if (panelOpen) applySelectedCharacterToPanel();
+            },
+            log,
+            warn
+        });
+
         FA_REACTIONS = emotionSystem.FA_REACTIONS;
 
         loadSettings();
+
+        storySync.bindSettingsUi();
+        storySync.bindEvents();
+        storySync.refreshInjections();
 
         // Inject mobile-specific stylesheet when running on a touch device.
         // Done AFTER loadSettings() so BASE_URL is guaranteed to be resolved.
@@ -7477,6 +7541,10 @@
             if (stContextEmotion && typeof stContextEmotion.unbindSTEvents === 'function') {
                 stContextEmotion.unbindSTEvents(context);
             }
+        }
+        if (storySync) {
+            storySync.unbindEvents();
+            storySync.clearInjections();
         }
         if (proactiveMessaging && typeof proactiveMessaging.stopProactiveScheduler === 'function') {
             proactiveMessaging.stopProactiveScheduler();
