@@ -328,6 +328,81 @@
                     </div>
                 </div>
 
+                <!-- Story Sync Section -->
+                <div class="et-accordion-section" data-section="story-sync">
+                    <div class="et-accordion-header">
+                        <span><i class="fa-solid fa-clock-rotate-left"></i> Story Sync</span>
+                        <i class="fa-solid fa-chevron-down et-accordion-arrow"></i>
+                    </div>
+                    <div class="et-accordion-content">
+                        <div class="et-hint" style="margin-bottom:16px;">Connects the phone to your roleplay. Reads the scene header at the top of each RP reply (time, day, location, 👥 Present), gives the phone character only the scenes they witnessed, uses story time for timestamps and {{time}}/{{date}}, and feeds phone conversations back into the RP. Works in Tethered mode with a solo RP chat. Each RP chat gets its own phone history. Real-clock proactive messages are paused while this is on.</div>
+
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ss_enabled">
+                                <input type="checkbox" id="et_ss_enabled" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-link"></i> Enable Story Sync</span>
+                            </label>
+                        </div>
+
+                        <div class="et-field">
+                            <div class="et-hint" style="white-space:pre-line; font-family:monospace;" id="et_ss_status">—</div>
+                            <button id="et_ss_refresh" class="et-mem-add-btn" style="margin-top:6px;" title="Re-read the current chat"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                        </div>
+
+                        <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-book-open"></i> RP → Phone</h4>
+                        <div class="et-ctx-wi-inputs">
+                            <div class="et-ctx-wi-field">
+                                <i class="fa-solid fa-list-ol et-ctx-wi-field-icon"></i>
+                                <span class="et-ctx-wi-field-label">Max RP messages</span>
+                                <input type="number" class="et-ctx-wi-field-input" id="et_ss_scenes" min="1" max="500" step="1" value="20">
+                            </div>
+                            <div class="et-ctx-wi-field">
+                                <i class="fa-solid fa-text-width et-ctx-wi-field-icon"></i>
+                                <span class="et-ctx-wi-field-label">Max characters</span>
+                                <input type="number" class="et-ctx-wi-field-input" id="et_ss_maxchars" min="500" max="200000" step="500" value="16000">
+                            </div>
+                        </div>
+                        <div class="et-field" style="margin-top:8px;">
+                            <span class="et-label-text"><i class="fa-solid fa-user-secret"></i> Messages without a 👥 Present field</span>
+                            <select id="et_ss_unknown" class="et-select">
+                                <option value="include">Include (older chats, greeting)</option>
+                                <option value="exclude">Exclude (strict)</option>
+                            </select>
+                            <div class="et-hint et-hint-indent">Only scenes listing the phone character in 👥 Present are shared. This decides what happens to messages from before you added the field.</div>
+                        </div>
+                        <div class="et-ctx-wi-inputs">
+                            <div class="et-ctx-wi-field">
+                                <i class="fa-solid fa-hourglass-half et-ctx-wi-field-icon"></i>
+                                <span class="et-ctx-wi-field-label">Story minutes per text</span>
+                                <input type="number" class="et-ctx-wi-field-input" id="et_ss_step" min="0" max="120" step="1" value="1">
+                            </div>
+                        </div>
+
+                        <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-mobile-screen"></i> Phone → RP</h4>
+                        <div class="et-field">
+                            <label class="et-toggle-row" for="et_ss_inject">
+                                <input type="checkbox" id="et_ss_inject" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-file-import"></i> Add phone chats to the RP prompt</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Each conversation is inserted right after the RP message it followed, so the main model knows what was texted.</div>
+                        </div>
+                        <div class="et-ctx-wi-inputs">
+                            <div class="et-ctx-wi-field">
+                                <i class="fa-solid fa-comments et-ctx-wi-field-icon"></i>
+                                <span class="et-ctx-wi-field-label">Max phone messages</span>
+                                <input type="number" class="et-ctx-wi-field-input" id="et_ss_inject_count" min="1" max="500" step="1" value="30">
+                            </div>
+                        </div>
+                        <div class="et-field" style="margin-top:8px;">
+                            <label class="et-toggle-row" for="et_ss_nogfx">
+                                <input type="checkbox" id="et_ss_nogfx" class="checkbox">
+                                <span class="et-label-text"><i class="fa-solid fa-ban"></i> Forbid phone GFX in the RP</span>
+                            </label>
+                            <div class="et-hint et-hint-indent">Tells the main model not to draw phone screens or write text messages itself.</div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Appearance Section -->
                 <div class="et-accordion-section" data-section="appearance">
                     <div class="et-accordion-header">

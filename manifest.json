@@ -1,12 +1,12 @@
 {
-    "display_name": "EchoText",
+    "display_name": "EchoText (Story Sync)",
     "loading_order": 1001,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "css": "style.css",
     "author": "mattjaybe",
-    "version": "1.2.6",
-    "homePage": "https://github.com/mattjaybe/SillyTavern-EchoText",
+    "version": "1.2.6-storysync.1",
+    "homePage": "https://github.com/confusion2048-cpu/SillyTavern-EchoText",
     "auto_update": true
 }
